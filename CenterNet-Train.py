@@ -39,7 +39,7 @@ print(torch.cuda.is_available())
 print(torch.version.cuda)
 torch.cuda.empty_cache()
 
-seed = 42
+seed = 317
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 # torch.backends.cudnn.benchmark = True
 # torch.backends.cudnn.deterministic = True
@@ -866,7 +866,7 @@ class BaseTrainer(object):
 
 #             if opt["debug"] > 0:
 #                 self.debug(batch, output, iter_id)
-                
+
 #             if opt["test"]:
 #                 self.save_result(output, batch, results)
 
@@ -966,7 +966,7 @@ class DddTrainer(BaseTrainer):
             results[img_id][j] = results[img_id][j][keep_inds]
 
 
-# In[35]:
+# In[43]:
 
 
 class KITTI(data.Dataset):
@@ -982,14 +982,15 @@ class KITTI(data.Dataset):
         if opt["trainval"]:
             split = 'trainval' if split == 'train' else 'test'
             self.img_dir = os.path.join(self.data_dir, 'images', split)
-            self.annot_path = os.path.join(self.data_dir, 'annotations', 'kitti_{}.json').format(split)
+            self.annot_path = os.path.join(self.data_dir, 'annotations',
+                                           'kitti_{}_{}.json').format(opt["kitti_split"], split)
         else:
             self.annot_path = os.path.join(self.data_dir, 
                                            'annotations', 'kitti_{}_{}.json').format(opt["kitti_split"], split)
         self.max_objs = 50
         self.class_name = ['__background__', 'Pedestrian', 'Car', 'Cyclist']
         self.cat_ids = {1:0, 2:1, 3:2, 4:-3, 5:-3, 6:-2, 7:-99, 8:-99, 9:-1}
-    
+
         self._data_rng = np.random.RandomState(123)
         self._eig_val = np.array([0.2141788, 0.01817699, 0.00341571], dtype=np.float32)
         self._eig_vec = np.array([
@@ -1038,7 +1039,7 @@ class KITTI(data.Dataset):
         os.system('./tools/kitti_eval/evaluate_object_3d_offline ' +                   '/data/kitti/training/label_val ' +                   '{}/results/'.format(save_dir))
 
 
-# In[36]:
+# In[44]:
 
 
 class DddDataset(data.Dataset):
@@ -1182,7 +1183,7 @@ class DddDataset(data.Dataset):
         return ret
 
 
-# In[37]:
+# In[45]:
 
 
 def update_dataset_info_and_set_heads(opt, dataset):
@@ -1207,7 +1208,7 @@ def update_dataset_info_and_set_heads(opt, dataset):
     return opt
 
 
-# In[38]:
+# In[46]:
 
 
 def get_dataset():
@@ -1216,7 +1217,7 @@ def get_dataset():
     return Dataset
 
 
-# In[39]:
+# In[47]:
 
 
 opt = {}
@@ -1238,13 +1239,13 @@ opt["task"] = 'ddd'
 opt["device"] = "cuda"
 opt["print_iter"] = 0
 opt["hide_data_time"] = True
-opt["lr"] = 5e-4
+opt["lr"] = 1.25e-4
 opt["lr_step"] = [45, 60]
-opt["trainval"] = False
+opt["trainval"] = True
 opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
 opt["down_ratio"] = 4
-opt["batch_size"] = 16
+opt["batch_size"] = 4
 opt["num_epochs"] = 70
 opt["keep_res"] = True
 opt["aug_ddd"] = 0.5
@@ -1270,7 +1271,7 @@ opt["debug"] = 0
 opt["save_dir"] = "results/"
 
 
-# In[40]:
+# In[48]:
 
 
 Dataset = get_dataset()
@@ -1278,17 +1279,22 @@ opt = update_dataset_info_and_set_heads(opt, Dataset)
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 
-# In[ ]:
+# In[49]:
 
 
-model = DLASeg(opt["heads"], final_kernel=1, last_level=5, head_conv=256, down_ratio=4, pretrained=True)
+model = DLASeg(opt["heads"],
+               final_kernel=1,
+               last_level=5,
+               head_conv=opt["head_conv"],
+               down_ratio=opt["down_ratio"],
+               pretrained=True)
 optimizer = torch.optim.Adam(model.parameters(), opt["lr"])
 
 trainer = DddTrainer(opt, model, optimizer)
 trainer.set_device(opt["device"])
 
 
-# In[ ]:
+# In[50]:
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -1299,16 +1305,16 @@ train_loader = torch.utils.data.DataLoader(
       pin_memory=True,
       drop_last=True)
 
-val_loader = torch.utils.data.DataLoader(
-      Dataset(opt, 'val'), 
-      batch_size=1, 
-      shuffle=False,
-      num_workers=1,
-      pin_memory=True
-)
+# val_loader = torch.utils.data.DataLoader(
+#       Dataset(opt, 'val'), 
+#       batch_size=1, 
+#       shuffle=False,
+#       num_workers=1,
+#       pin_memory=True
+# )
 
 
-# In[ ]:
+# In[51]:
 
 
 best = 1e10
@@ -1328,26 +1334,27 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
         epoch, log_dict_train["loss"], log_dict_train["hm_loss"], log_dict_train["dep_loss"],
         log_dict_train["dim_loss"], log_dict_train["rot_loss"], log_dict_train["wh_loss"],
         log_dict_train["off_loss"]))
+    torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
 
-    if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
-        torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
-        with torch.no_grad():
-            log_dict_val, preds = trainer.val(epoch, val_loader)
-            losses_val.append(log_dict_val["loss"])
-            hm_losses_val.append(log_dict_val["hm_loss"])
-            dep_losses_val.append(log_dict_val["dep_loss"])
-            dim_losses_val.append(log_dict_val["dim_loss"])
-            rot_losses_val.append(log_dict_val["rot_loss"])
-            wh_losses_val.append(log_dict_val["wh_loss"])
-            off_losses_val.append(log_dict_val["off_loss"])
+#     if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
+#         torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
+#         with torch.no_grad():
+#             log_dict_val, preds = trainer.val(epoch, val_loader)
+#             losses_val.append(log_dict_val["loss"])
+#             hm_losses_val.append(log_dict_val["hm_loss"])
+#             dep_losses_val.append(log_dict_val["dep_loss"])
+#             dim_losses_val.append(log_dict_val["dim_loss"])
+#             rot_losses_val.append(log_dict_val["rot_loss"])
+#             wh_losses_val.append(log_dict_val["wh_loss"])
+#             off_losses_val.append(log_dict_val["off_loss"])
 
-            print("VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
-                epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
-                log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
-                log_dict_val["off_loss"]))
-            if log_dict_val[opt["metric"]] < best:
-                best = log_dict_val[opt["metric"]]
-                torch.save(model.state_dict(), "centernet_best.pth")
+#             print("VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
+#                 epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
+#                 log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
+#                 log_dict_val["off_loss"]))
+#             if log_dict_val[opt["metric"]] < best:
+#                 best = log_dict_val[opt["metric"]]
+#                 torch.save(model.state_dict(), "centernet_best.pth")
 
     if epoch in opt["lr_step"]:
         lr = opt["lr"] * (0.1 ** (opt["lr_step"].index(epoch) + 1))
