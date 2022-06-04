@@ -1338,7 +1338,7 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
         epoch, log_dict_train["loss"], log_dict_train["hm_loss"], log_dict_train["dep_loss"],
         log_dict_train["dim_loss"], log_dict_train["rot_loss"], log_dict_train["wh_loss"],
         log_dict_train["off_loss"]))
-    torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
+    #torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
 
     if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
         torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
