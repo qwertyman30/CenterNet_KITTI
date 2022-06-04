@@ -966,7 +966,7 @@ class DddTrainer(BaseTrainer):
             results[img_id][j] = results[img_id][j][keep_inds]
 
 
-# In[43]:
+# In[35]:
 
 
 class KITTI(data.Dataset):
@@ -1039,7 +1039,7 @@ class KITTI(data.Dataset):
         os.system('./tools/kitti_eval/evaluate_object_3d_offline ' +                   '/data/kitti/training/label_val ' +                   '{}/results/'.format(save_dir))
 
 
-# In[44]:
+# In[36]:
 
 
 class DddDataset(data.Dataset):
@@ -1183,7 +1183,7 @@ class DddDataset(data.Dataset):
         return ret
 
 
-# In[45]:
+# In[37]:
 
 
 def update_dataset_info_and_set_heads(opt, dataset):
@@ -1208,7 +1208,7 @@ def update_dataset_info_and_set_heads(opt, dataset):
     return opt
 
 
-# In[46]:
+# In[38]:
 
 
 def get_dataset():
@@ -1217,7 +1217,7 @@ def get_dataset():
     return Dataset
 
 
-# In[47]:
+# In[39]:
 
 
 opt = {}
@@ -1241,37 +1241,41 @@ opt["print_iter"] = 0
 opt["hide_data_time"] = True
 opt["lr"] = 1.25e-4
 opt["lr_step"] = [45, 60]
-opt["trainval"] = True
+opt["trainval"] = False
 opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
 opt["down_ratio"] = 4
 opt["batch_size"] = 4
 opt["num_epochs"] = 70
-opt["keep_res"] = True
+opt["keep_res"] = False
+opt["nms"] = False
+opt["no_color_aug"] = False
+opt["norm_wh"] = False
+opt["reg_loss"] = "l1"
+opt["scores_thresh"] = 0.1
 opt["aug_ddd"] = 0.5
-opt["mse_loss"] = True
+opt["mse_loss"] = False
 opt["scale"] = 0.4
-opt["rect_mask"] = True
+opt["rect_mask"] = False
 opt["shift"] = 0.1
-opt["eval_oracle_dep"] = True
+opt["eval_oracle_dep"] = False
 opt["dep_weight"] = 1
 opt["dim_weight"] = 1
 opt["rot_weight"] = 1
 opt["wh_weight"] = 0.1
 opt["off_weight"] = 1
 opt["hm_weight"] = 1
-opt["dim_weight"] = 0.1
 opt["test"] = False
 opt["val_intervals"] = 5
 opt["metric"] = "loss"
-opt["test_scales"] = [1]
+opt["test_scales"] = [1.0]
 opt["peak_thresh"] = 0.2
 opt["vis_thresh"] = 0.3
 opt["debug"] = 0
 opt["save_dir"] = "results/"
 
 
-# In[48]:
+# In[40]:
 
 
 Dataset = get_dataset()
@@ -1279,7 +1283,7 @@ opt = update_dataset_info_and_set_heads(opt, Dataset)
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 
-# In[49]:
+# In[41]:
 
 
 model = DLASeg(opt["heads"],
@@ -1294,7 +1298,7 @@ trainer = DddTrainer(opt, model, optimizer)
 trainer.set_device(opt["device"])
 
 
-# In[50]:
+# In[42]:
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -1305,16 +1309,16 @@ train_loader = torch.utils.data.DataLoader(
       pin_memory=True,
       drop_last=True)
 
-# val_loader = torch.utils.data.DataLoader(
-#       Dataset(opt, 'val'), 
-#       batch_size=1, 
-#       shuffle=False,
-#       num_workers=1,
-#       pin_memory=True
-# )
+val_loader = torch.utils.data.DataLoader(
+      Dataset(opt, 'val'), 
+      batch_size=1, 
+      shuffle=False,
+      num_workers=1,
+      pin_memory=True
+)
 
 
-# In[51]:
+# In[ ]:
 
 
 best = 1e10
@@ -1334,28 +1338,27 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
         epoch, log_dict_train["loss"], log_dict_train["hm_loss"], log_dict_train["dep_loss"],
         log_dict_train["dim_loss"], log_dict_train["rot_loss"], log_dict_train["wh_loss"],
         log_dict_train["off_loss"]))
-    if epoch % 5 == 0:
-        torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
+    torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
 
-#     if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
-#         torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
-#         with torch.no_grad():
-#             log_dict_val, preds = trainer.val(epoch, val_loader)
-#             losses_val.append(log_dict_val["loss"])
-#             hm_losses_val.append(log_dict_val["hm_loss"])
-#             dep_losses_val.append(log_dict_val["dep_loss"])
-#             dim_losses_val.append(log_dict_val["dim_loss"])
-#             rot_losses_val.append(log_dict_val["rot_loss"])
-#             wh_losses_val.append(log_dict_val["wh_loss"])
-#             off_losses_val.append(log_dict_val["off_loss"])
+    if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
+        torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
+        with torch.no_grad():
+            log_dict_val, preds = trainer.val(epoch, val_loader)
+            losses_val.append(log_dict_val["loss"])
+            hm_losses_val.append(log_dict_val["hm_loss"])
+            dep_losses_val.append(log_dict_val["dep_loss"])
+            dim_losses_val.append(log_dict_val["dim_loss"])
+            rot_losses_val.append(log_dict_val["rot_loss"])
+            wh_losses_val.append(log_dict_val["wh_loss"])
+            off_losses_val.append(log_dict_val["off_loss"])
 
-#             print("VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
-#                 epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
-#                 log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
-#                 log_dict_val["off_loss"]))
-#             if log_dict_val[opt["metric"]] < best:
-#                 best = log_dict_val[opt["metric"]]
-#                 torch.save(model.state_dict(), "centernet_best.pth")
+            print("VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
+                epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
+                log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
+                log_dict_val["off_loss"]))
+            if log_dict_val[opt["metric"]] < best:
+                best = log_dict_val[opt["metric"]]
+                torch.save(model.state_dict(), "centernet_best.pth")
 
     if epoch in opt["lr_step"]:
         lr = opt["lr"] * (0.1 ** (opt["lr_step"].index(epoch) + 1))
@@ -1387,39 +1390,11 @@ plt.close()
 # In[ ]:
 
 
-plt.plot(losses_val)
-plt.xlabel("Epochs (x5)")
-plt.ylabel("Loss")
-plt.title("Losses val")
-plt.savefig("Losses_val.png")
-plt.show()
-plt.clf()
-plt.cla()
-plt.close()
-
-
-# In[ ]:
-
-
 plt.plot(hm_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.title("hm_losses")
 plt.savefig("hm_losses.png")
-plt.show()
-plt.clf()
-plt.cla()
-plt.close()
-
-
-# In[ ]:
-
-
-plt.plot(hm_losses_val)
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.title("hm_losses_val")
-plt.savefig("hm_losses_val.png")
 plt.show()
 plt.clf()
 plt.cla()
@@ -1443,39 +1418,11 @@ plt.close()
 # In[ ]:
 
 
-plt.plot(dep_losses_val)
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.title("dep_losses_val")
-plt.savefig("dep_losses_val.png")
-plt.show()
-plt.clf()
-plt.cla()
-plt.close()
-
-
-# In[ ]:
-
-
 plt.plot(dim_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.title("dim_losses")
 plt.savefig("dim_losses.png")
-plt.show()
-plt.clf()
-plt.cla()
-plt.close()
-
-
-# In[ ]:
-
-
-plt.plot(dim_losses_val)
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.title("dim_losses_val")
-plt.savefig("dim_losses_val.png")
 plt.show()
 plt.clf()
 plt.cla()
@@ -1499,20 +1446,6 @@ plt.close()
 # In[ ]:
 
 
-plt.plot(rot_losses_val)
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.title("rot_losses_val")
-plt.savefig("rot_losses_val.png")
-plt.show()
-plt.clf()
-plt.cla()
-plt.close()
-
-
-# In[ ]:
-
-
 plt.plot(wh_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1527,11 +1460,11 @@ plt.close()
 # In[ ]:
 
 
-plt.plot(wh_losses_val)
+plt.plot(off_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
-plt.title("wh_losses_val")
-plt.savefig("wh_losses_val.png")
+plt.title("off_losses")
+plt.savefig("off_losses.png")
 plt.show()
 plt.clf()
 plt.cla()
@@ -1541,11 +1474,81 @@ plt.close()
 # In[ ]:
 
 
-plt.plot(off_losses)
+plt.plot(losses_val)
+plt.xlabel("Epochs (x5)")
+plt.ylabel("Loss")
+plt.title("Losses val")
+plt.savefig("Losses_val.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(hm_losses_val)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
-plt.title("off_losses")
-plt.savefig("off_losses.png")
+plt.title("hm_losses_val")
+plt.savefig("hm_losses_val.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(dep_losses_val)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("dep_losses_val")
+plt.savefig("dep_losses_val.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(dim_losses_val)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("dim_losses_val")
+plt.savefig("dim_losses_val.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(rot_losses_val)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("rot_losses_val")
+plt.savefig("rot_losses_val.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(wh_losses_val)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("wh_losses_val")
+plt.savefig("wh_losses_val.png")
 plt.show()
 plt.clf()
 plt.cla()
