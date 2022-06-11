@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -31,10 +28,6 @@ from image import get_affine_transform, affine_transform
 from image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from oracle_utils import gen_oracle_map
 
-
-# In[2]:
-
-
 print(torch.cuda.is_available())
 print(torch.version.cuda)
 torch.cuda.empty_cache()
@@ -51,23 +44,14 @@ BatchNorm = nn.BatchNorm2d
 BN_MOMENTUM = 0.1
 
 
-# In[3]:
-
-
 def get_model_url(data='imagenet', name='dla34', hash='ba72cf86'):
     return os.path.join('http://dl.yf.io/dla/models', data, '{}-{}.pth'.format(name, hash))
-
-
-# In[4]:
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
-
-
-# In[5]:
 
 
 class BasicBlock(nn.Module):
@@ -99,9 +83,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
-
-# In[6]:
 
 
 class Bottleneck(nn.Module):
@@ -143,9 +124,6 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
-
-
-# In[7]:
 
 
 class BottleneckX(nn.Module):
@@ -192,9 +170,6 @@ class BottleneckX(nn.Module):
         return out
 
 
-# In[8]:
-
-
 class Root(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, residual):
         super(Root, self).__init__()
@@ -214,9 +189,6 @@ class Root(nn.Module):
         x = self.relu(x)
 
         return x
-
-
-# In[9]:
 
 
 class Tree(nn.Module):
@@ -273,9 +245,6 @@ class Tree(nn.Module):
             children.append(x1)
             x = self.tree2(x1, children=children)
         return x
-
-
-# In[10]:
 
 
 class DLA(nn.Module):
@@ -353,9 +322,6 @@ class DLA(nn.Module):
         self.load_state_dict(model_weights)
 
 
-# In[11]:
-
-
 def dla34(pretrained=True, **kwargs):  # DLA-34
     model = DLA([1, 1, 1, 2, 2, 1],
                 [16, 32, 64, 128, 256, 512],
@@ -365,16 +331,10 @@ def dla34(pretrained=True, **kwargs):  # DLA-34
     return model
 
 
-# In[12]:
-
-
 def set_bn(bn):
     global BatchNorm
     BatchNorm = bn
     dla.BatchNorm = bn
-
-
-# In[13]:
 
 
 class Identity(nn.Module):
@@ -385,17 +345,11 @@ class Identity(nn.Module):
         return x
 
 
-# In[14]:
-
-
 def fill_fc_weights(layers):
     for m in layers.modules():
         if isinstance(m, nn.Conv2d):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
-
-
-# In[15]:
 
 
 def fill_up_weights(up):
@@ -404,12 +358,9 @@ def fill_up_weights(up):
     c = (2 * f - 1 - f % 2) / (2. * f)
     for i in range(w.size(2)):
         for j in range(w.size(3)):
-            w[0, 0, i, j] =                 (1 - math.fabs(i / f - c)) * (1 - math.fabs(j / f - c))
+            w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j / f - c))
     for c in range(1, w.size(0)):
         w[c, 0, :, :] = w[0, 0, :, :]
-
-
-# In[16]:
 
 
 class DeformConv(nn.Module):
@@ -419,15 +370,12 @@ class DeformConv(nn.Module):
             nn.BatchNorm2d(cho, momentum=BN_MOMENTUM),
             nn.ReLU(inplace=True)
         )
-        self.conv = DCN(chi, cho, kernel_size=(3,3), stride=1, padding=1, dilation=1, deformable_groups=1)
+        self.conv = DCN(chi, cho, kernel_size=(3, 3), stride=1, padding=1, dilation=1, deformable_groups=1)
 
     def forward(self, x):
         x = self.conv(x)
         x = self.actf(x)
         return x
-
-
-# In[17]:
 
 
 class IDAUp(nn.Module):
@@ -436,11 +384,11 @@ class IDAUp(nn.Module):
         super(IDAUp, self).__init__()
         for i in range(1, len(channels)):
             c = channels[i]
-            f = int(up_f[i])  
+            f = int(up_f[i])
             proj = DeformConv(c, o)
             node = DeformConv(o, o)
-     
-            up = nn.ConvTranspose2d(o, o, f * 2, stride=f, 
+
+            up = nn.ConvTranspose2d(o, o, f * 2, stride=f,
                                     padding=f // 2, output_padding=0,
                                     groups=o, bias=False)
             fill_up_weights(up)
@@ -448,8 +396,7 @@ class IDAUp(nn.Module):
             setattr(self, 'proj_' + str(i), proj)
             setattr(self, 'up_' + str(i), up)
             setattr(self, 'node_' + str(i), node)
-                 
-        
+
     def forward(self, layers, startp, endp):
         for i in range(startp + 1, endp):
             upsample = getattr(self, 'up_' + str(i - startp))
@@ -457,9 +404,6 @@ class IDAUp(nn.Module):
             layers[i] = upsample(project(layers[i]))
             node = getattr(self, 'node_' + str(i - startp))
             layers[i] = node(layers[i] + layers[i - 1])
-
-
-# In[18]:
 
 
 class DLAUp(nn.Module):
@@ -480,15 +424,12 @@ class DLAUp(nn.Module):
             in_channels[j + 1:] = [channels[j] for _ in channels[j + 1:]]
 
     def forward(self, layers):
-        out = [layers[-1]] # start with 32
+        out = [layers[-1]]  # start with 32
         for i in range(len(layers) - self.startp - 1):
             ida = getattr(self, 'ida_{}'.format(i))
-            ida(layers, len(layers) -i - 2, len(layers))
+            ida(layers, len(layers) - i - 2, len(layers))
             out.insert(0, layers[-1])
         return out
-
-
-# In[19]:
 
 
 class DLASeg(nn.Module):
@@ -506,9 +447,9 @@ class DLASeg(nn.Module):
         if out_channel == 0:
             out_channel = channels[self.first_level]
 
-        self.ida_up = IDAUp(out_channel, channels[self.first_level:self.last_level], 
+        self.ida_up = IDAUp(out_channel, channels[self.first_level:self.last_level],
                             [2 ** i for i in range(self.last_level - self.first_level)])
-        
+
         self.heads = heads
         for head in self.heads:
             classes = self.heads[head]
@@ -517,16 +458,16 @@ class DLASeg(nn.Module):
                     nn.Conv2d(channels[self.first_level], head_conv,
                               kernel_size=3, padding=1, bias=True),
                     nn.ReLU(inplace=True),
-                    nn.Conv2d(head_conv, classes, 
-                              kernel_size=final_kernel, stride=1, 
+                    nn.Conv2d(head_conv, classes,
+                              kernel_size=final_kernel, stride=1,
                               padding=final_kernel // 2, bias=True))
                 if 'hm' in head:
                     fc[-1].bias.data.fill_(-2.19)
                 else:
                     fill_fc_weights(fc)
             else:
-                fc = nn.Conv2d(channels[self.first_level], classes, 
-                               kernel_size=final_kernel, stride=1, 
+                fc = nn.Conv2d(channels[self.first_level], classes,
+                               kernel_size=final_kernel, stride=1,
                                padding=final_kernel // 2, bias=True)
                 if 'hm' in head:
                     fc.bias.data.fill_(-2.19)
@@ -549,9 +490,6 @@ class DLASeg(nn.Module):
         return [z]
 
 
-# In[20]:
-
-
 def _neg_loss(pred, gt):
     ''' Modified focal loss. Exactly the same as CornerNet.
         Runs faster and costs a little bit more memory
@@ -561,18 +499,18 @@ def _neg_loss(pred, gt):
     '''
     pos_inds = gt.eq(1).float()
     neg_inds = gt.lt(1).float()
-    
+
     neg_weights = torch.pow(1 - gt, 4)
-    
+
     loss = 0
-    
+
     pos_loss = torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds
     neg_loss = torch.log(1 - pred) * torch.pow(pred, 2) * neg_weights * neg_inds
-    
-    num_pos  = pos_inds.float().sum()
+
+    num_pos = pos_inds.float().sum()
     pos_loss = pos_loss.sum()
     neg_loss = neg_loss.sum()
-    
+
     if num_pos == 0:
         loss = loss - neg_loss
     else:
@@ -580,21 +518,15 @@ def _neg_loss(pred, gt):
     return loss
 
 
-# In[21]:
-
-
 def _gather_feat(feat, ind, mask=None):
-    dim  = feat.size(2)
-    ind  = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
+    dim = feat.size(2)
+    ind = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
     feat = feat.gather(1, ind)
     if mask is not None:
         mask = mask.unsqueeze(2).expand_as(feat)
         feat = feat[mask]
         feat = feat.view(-1, dim)
     return feat
-
-
-# In[22]:
 
 
 def _transpose_and_gather_feat(feat, ind):
@@ -604,21 +536,15 @@ def _transpose_and_gather_feat(feat, ind):
     return feat
 
 
-# In[23]:
-
-
 class L1Loss(nn.Module):
     def __init__(self):
         super(L1Loss, self).__init__()
-  
+
     def forward(self, output, mask, ind, target):
         pred = _transpose_and_gather_feat(output, ind)
         mask = mask.unsqueeze(2).expand_as(pred).float()
         loss = F.l1_loss(pred * mask, target * mask, reduction='mean')
         return loss
-
-
-# In[24]:
 
 
 def compute_rot_loss(output, target_bin, target_res, mask):
@@ -634,30 +560,24 @@ def compute_rot_loss(output, target_bin, target_res, mask):
         valid_output1 = torch.index_select(output, 0, idx1.long())
         valid_target_res1 = torch.index_select(target_res, 0, idx1.long())
         loss_sin1 = compute_res_loss(
-          valid_output1[:, 2], torch.sin(valid_target_res1[:, 0]))
+            valid_output1[:, 2], torch.sin(valid_target_res1[:, 0]))
         loss_cos1 = compute_res_loss(
-          valid_output1[:, 3], torch.cos(valid_target_res1[:, 0]))
+            valid_output1[:, 3], torch.cos(valid_target_res1[:, 0]))
         loss_res += loss_sin1 + loss_cos1
     if target_bin[:, 1].nonzero().shape[0] > 0:
         idx2 = target_bin[:, 1].nonzero()[:, 0]
         valid_output2 = torch.index_select(output, 0, idx2.long())
         valid_target_res2 = torch.index_select(target_res, 0, idx2.long())
         loss_sin2 = compute_res_loss(
-          valid_output2[:, 6], torch.sin(valid_target_res2[:, 1]))
+            valid_output2[:, 6], torch.sin(valid_target_res2[:, 1]))
         loss_cos2 = compute_res_loss(
-          valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
+            valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
         loss_res += loss_sin2 + loss_cos2
     return loss_bin1 + loss_bin2 + loss_res
 
 
-# In[25]:
-
-
 def compute_res_loss(output, target):
     return F.smooth_l1_loss(output, target, reduction='mean')
-
-
-# In[26]:
 
 
 # TODO: weight
@@ -667,24 +587,19 @@ def compute_bin_loss(output, target, mask):
     return F.cross_entropy(output, target, reduction='mean')
 
 
-# In[27]:
-
-
 class BinRotLoss(nn.Module):
     def __init__(self):
         super(BinRotLoss, self).__init__()
-  
+
     def forward(self, output, mask, ind, rotbin, rotres):
         pred = _transpose_and_gather_feat(output, ind)
         loss = compute_rot_loss(pred, rotbin, rotres, mask)
         return loss
 
 
-# In[28]:
-
-
 class FocalLoss(nn.Module):
     '''nn.Module warpper for focal loss'''
+
     def __init__(self):
         super(FocalLoss, self).__init__()
         self.neg_loss = _neg_loss
@@ -693,15 +608,9 @@ class FocalLoss(nn.Module):
         return self.neg_loss(out, target)
 
 
-# In[29]:
-
-
 def _sigmoid(x):
-    y = torch.clamp(x.sigmoid_(), min=1e-4, max=1-1e-4)
+    y = torch.clamp(x.sigmoid_(), min=1e-4, max=1 - 1e-4)
     return y
-
-
-# In[30]:
 
 
 class DddLoss(torch.nn.Module):
@@ -711,32 +620,32 @@ class DddLoss(torch.nn.Module):
         self.crit_reg = L1Loss()
         self.crit_rot = BinRotLoss()
         self.opt = opt
-        
+
     def forward(self, outputs, batch):
         opt = self.opt
-        
+
         hm_loss, dep_loss, rot_loss, dim_loss = 0, 0, 0, 0
         wh_loss, off_loss = 0, 0
         for s in range(opt["num_stacks"]):
             output = outputs[s]
             output['hm'] = _sigmoid(output['hm'])
             output['dep'] = 1. / (output['dep'].sigmoid() + 1e-6) - 1.
-            
+
             if opt["eval_oracle_dep"]:
                 output['dep'] = torch.from_numpy(gen_oracle_map(
-                    batch['dep'].detach().cpu().numpy(), 
-                    batch['ind'].detach().cpu().numpy(), 
+                    batch['dep'].detach().cpu().numpy(),
+                    batch['ind'].detach().cpu().numpy(),
                     opt["output_w"], opt["output_h"])).to(opt["device"])
-            
+
             hm_loss += self.crit(output['hm'], batch['hm']) / opt["num_stacks"]
             if opt["dep_weight"] > 0:
                 dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
                                           batch['ind'], batch['dep']) / opt["num_stacks"]
-                
+
             if opt["dim_weight"] > 0:
                 dim_loss += self.crit_reg(output['dim'], batch['reg_mask'],
                                           batch['ind'], batch['dim']) / opt["num_stacks"]
-            
+
             if opt["rot_weight"] > 0:
                 rot_loss += self.crit_rot(output['rot'], batch['rot_mask'],
                                           batch['ind'], batch['rotbin'],
@@ -750,16 +659,14 @@ class DddLoss(torch.nn.Module):
                 off_loss += self.crit_reg(output['reg'], batch['rot_mask'],
                                           batch['ind'], batch['reg']) / opt["num_stacks"]
 
-        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss +                 opt["dim_weight"] * dim_loss + opt["rot_weight"] * rot_loss +                opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss
+        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss + opt["dim_weight"] * dim_loss + opt[
+            "rot_weight"] * rot_loss + opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss
 
-        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss, 
-                      'dim_loss': dim_loss, 'rot_loss': rot_loss, 
+        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss,
+                      'dim_loss': dim_loss, 'rot_loss': rot_loss,
                       'wh_loss': wh_loss, 'off_loss': off_loss}
 
         return loss, loss_stats
-
-
-# In[31]:
 
 
 class ModelWithLoss(torch.nn.Module):
@@ -767,18 +674,16 @@ class ModelWithLoss(torch.nn.Module):
         super(ModelWithLoss, self).__init__()
         self.model = model
         self.loss = loss
-  
+
     def forward(self, batch):
         outputs = self.model(batch['input'])
         loss, loss_stats = self.loss(outputs, batch)
         return outputs[-1], loss, loss_stats
 
 
-# In[32]:
-
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -796,9 +701,6 @@ class AverageMeter(object):
             self.avg = self.sum / self.count
 
 
-# In[33]:
-
-
 class BaseTrainer(object):
     def __init__(self, opt, model, optimizer=None):
         self.opt = opt
@@ -808,7 +710,7 @@ class BaseTrainer(object):
 
     def set_device(self, device):
         self.model_with_loss = self.model_with_loss.to(device)
-    
+
         for state in self.optimizer.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
@@ -833,50 +735,50 @@ class BaseTrainer(object):
             if iter_id >= num_iters:
                 break
             data_time.update(time.time() - end)
-        
+
             for k in batch:
                 if k != 'meta':
                     batch[k] = batch[k].to(device=opt["device"], non_blocking=True)
             output, loss, loss_stats = model_with_loss(batch)
             loss = loss.mean()
-            
+
             if phase == 'train':
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-            
+
             batch_time.update(time.time() - end)
             end = time.time()
 
-        
             Bar.suffix = '{phase}: [{0}][{1}/{2}]|Tot: {total:} |ETA: {eta:} '.format(
                 epoch, iter_id, num_iters, phase=phase,
                 total=bar.elapsed_td, eta=bar.eta_td)
-        
+
             for l in avg_loss_stats:
                 avg_loss_stats[l].update(loss_stats[l].mean().item(), batch['input'].size(0))
                 Bar.suffix = Bar.suffix + '|{} {:.4f} '.format(l, avg_loss_stats[l].avg)
             if not opt["hide_data_time"]:
-                Bar.suffix = Bar.suffix + '|Data {dt.val:.3f}s({dt.avg:.3f}s) '                '|Net {bt.avg:.3f}s'.format(dt=data_time, bt=batch_time)
+                Bar.suffix = Bar.suffix + '|Data {dt.val:.3f}s({dt.avg:.3f}s) '                '|Net {bt.avg:.3f}s'.format(
+                    dt=data_time, bt=batch_time)
             if opt["print_iter"] > 0:
                 if iter_id % opt["print_iter"] == 0:
                     print('{}/{}| {}'.format(opt["task"], opt["exp_id"], Bar.suffix))
             else:
                 bar.next()
 
-#             if opt["debug"] > 0:
-#                 self.debug(batch, output, iter_id)
+            #             if opt["debug"] > 0:
+            #                 self.debug(batch, output, iter_id)
 
-#             if opt["test"]:
-#                 self.save_result(output, batch, results)
+            #             if opt["test"]:
+            #                 self.save_result(output, batch, results)
 
             del output, loss, loss_stats
-            
+
         bar.finish()
         ret = {k: v.avg for k, v in avg_loss_stats.items()}
         ret['time'] = bar.elapsed_td.total_seconds() / 60.
         return ret, results
-    
+
     def debug(self, batch, output, iter_id):
         raise NotImplementedError
 
@@ -885,21 +787,18 @@ class BaseTrainer(object):
 
     def _get_losses(self, opt):
         raise NotImplementedError
-        
+
     def val(self, epoch, data_loader):
         return self.run_epoch('val', epoch, data_loader)
-    
+
     def train(self, epoch, data_loader):
         return self.run_epoch('train', epoch, data_loader)
-
-
-# In[34]:
 
 
 class DddTrainer(BaseTrainer):
     def __init__(self, opt, model, optimizer=None):
         super(DddTrainer, self).__init__(opt, model, optimizer=optimizer)
-        
+
     def _get_losses(self, opt):
         loss_states = ['loss', 'hm_loss', 'dep_loss', 'dim_loss',
                        'rot_loss', 'wh_loss', 'off_loss']
@@ -912,19 +811,19 @@ class DddTrainer(BaseTrainer):
         reg = output['reg'] if opt["reg_offset"] else None
         dets = ddd_decode(output['hm'], output['rot'], output['dep'],
                           output['dim'], wh=wh, reg=reg, K=opt["K"])
-        
+
         dets = dets.detach().cpu().numpy().reshape(1, -1, dets.shape[2])
         calib = batch['meta']['calib'].detach().numpy()
-        
-        dets_pred = ddd_post_process(dets.copy(), batch['meta']['c'].detach().numpy(), 
+
+        dets_pred = ddd_post_process(dets.copy(), batch['meta']['c'].detach().numpy(),
                                      batch['meta']['s'].detach().numpy(), calib, opt)
         dets_gt = ddd_post_process(batch['meta']['gt_det'].detach().numpy().copy(),
-                                   batch['meta']['c'].detach().numpy(), 
+                                   batch['meta']['c'].detach().numpy(),
                                    batch['meta']['s'].detach().numpy(), calib, opt)
-        
-        #for i in range(input.size(0)):
+
+        # for i in range(input.size(0)):
         for i in range(1):
-            debugger = Debugger(dataset=opt["dataset"], ipynb=(opt["debug"]==3),
+            debugger = Debugger(dataset=opt["dataset"], ipynb=(opt["debug"] == 3),
                                 theme=opt["debugger_theme"])
             img = batch['input'][i].detach().cpu().numpy().transpose(1, 2, 0)
             img = ((img * self.opt["std"] + self.opt["mean"]) * 255.).astype(np.uint8)
@@ -934,7 +833,7 @@ class DddTrainer(BaseTrainer):
             debugger.add_blend_img(img, gt, 'hm_gt')
             debugger.add_ct_detection(img, dets[i], show_box=opt["reg_bbox"],
                                       center_thresh=opt["center_thresh"], img_id='det_pred')
-            debugger.add_ct_detection(img, batch['meta']['gt_det'][i].cpu().numpy().copy(), 
+            debugger.add_ct_detection(img, batch['meta']['gt_det'][i].cpu().numpy().copy(),
                                       show_box=opt["reg_bbox"], img_id='det_gt')
             debugger.add_3d_detection(batch['meta']['image_path'][i], dets_pred[i], calib[i],
                                       center_thresh=opt["center_thresh"], img_id='add_pred')
@@ -948,7 +847,7 @@ class DddTrainer(BaseTrainer):
                 debugger.save_all_imgs(opt["debug_dir"], prefix='{}'.format(iter_id))
             else:
                 debugger.show_all_imgs(pause=True)
-    
+
     def save_result(self, output, batch, results):
         opt = self.opt
         wh = output['wh'] if opt["reg_bbox"] else None
@@ -964,9 +863,6 @@ class DddTrainer(BaseTrainer):
         for j in range(1, opt["num_classes"] + 1):
             keep_inds = (results[img_id][j][:, -1] > opt["center_thresh"])
             results[img_id][j] = results[img_id][j][keep_inds]
-
-
-# In[35]:
 
 
 class KITTI(data.Dataset):
@@ -985,11 +881,11 @@ class KITTI(data.Dataset):
             self.annot_path = os.path.join(self.data_dir, 'annotations',
                                            'kitti_{}_{}.json').format(opt["kitti_split"], split)
         else:
-            self.annot_path = os.path.join(self.data_dir, 
+            self.annot_path = os.path.join(self.data_dir,
                                            'annotations', 'kitti_{}_{}.json').format(opt["kitti_split"], split)
         self.max_objs = 50
         self.class_name = ['__background__', 'Pedestrian', 'Car', 'Cyclist']
-        self.cat_ids = {1:0, 2:1, 3:2, 4:-3, 5:-3, 6:-2, 7:-99, 8:-99, 9:-1}
+        self.cat_ids = {1: 0, 2: 1, 3: 2, 4: -3, 5: -3, 6: -2, 7: -99, 8: -99, 9: -1}
 
         self._data_rng = np.random.RandomState(123)
         self._eig_val = np.array([0.2141788, 0.01817699, 0.00341571], dtype=np.float32)
@@ -1036,10 +932,9 @@ class KITTI(data.Dataset):
 
     def run_eval(self, results, save_dir):
         self.save_results(results, save_dir)
-        os.system('./tools/kitti_eval/evaluate_object_3d_offline ' +                   '/data/kitti/training/label_val ' +                   '{}/results/'.format(save_dir))
-
-
-# In[36]:
+        os.system(
+            './tools/kitti_eval/evaluate_object_3d_offline ' + '/data/kitti/training/label_val ' + '{}/results/'.format(
+                save_dir))
 
 
 class DddDataset(data.Dataset):
@@ -1067,15 +962,15 @@ class DddDataset(data.Dataset):
             s = np.array([self.opt["input_w"], self.opt["input_h"]], dtype=np.int32)
         else:
             s = np.array([width, height], dtype=np.int32)
-    
+
         aug = False
         if self.split == 'train' and np.random.random() < self.opt["aug_ddd"]:
             aug = True
             sf = self.opt["scale"]
             cf = self.opt["shift"]
-            s = s * np.clip(np.random.randn()*sf + 1, 1 - sf, 1 + sf)
-            c[0] += img.shape[1] * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
-            c[1] += img.shape[0] * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
+            s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
+            c[0] += img.shape[1] * np.clip(np.random.randn() * cf, -2 * cf, 2 * cf)
+            c[1] += img.shape[0] * np.clip(np.random.randn() * cf, -2 * cf, 2 * cf)
 
         trans_input = get_affine_transform(
             c, s, 0, [self.opt["input_w"], self.opt["input_h"]])
@@ -1105,7 +1000,7 @@ class DddDataset(data.Dataset):
         anns = self.coco.loadAnns(ids=ann_ids)
         num_objs = min(len(anns), self.max_objs)
         draw_gaussian = draw_msra_gaussian if self.opt["mse_loss"] else draw_umich_gaussian
-    
+
         gt_det = []
         for k in range(num_objs):
             ann = anns[k]
@@ -1113,7 +1008,7 @@ class DddDataset(data.Dataset):
             cls_id = int(self.cat_ids[ann['category_id']])
             if cls_id <= -99:
                 continue
-      
+
             bbox[:2] = affine_transform(bbox[:2], trans_output)
             bbox[2:] = affine_transform(bbox[2:], trans_output)
             bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, self.opt["output_w"] - 1)
@@ -1124,12 +1019,12 @@ class DddDataset(data.Dataset):
                 radius = max(0, int(radius))
                 ct = np.array([(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
                 ct_int = ct.astype(np.int32)
-        
+
                 if cls_id < 0:
-                    ignore_id = [_ for _ in range(num_classes)] if cls_id == - 1 else  [- cls_id - 2]
-                    
+                    ignore_id = [_ for _ in range(num_classes)] if cls_id == - 1 else [- cls_id - 2]
+
                     if self.opt["rect_mask"]:
-                        hm[ignore_id, int(bbox[1]): int(bbox[3]) + 1, 
+                        hm[ignore_id, int(bbox[1]): int(bbox[3]) + 1,
                         int(bbox[0]): int(bbox[2]) + 1] = 0.9999
                     else:
                         for cc in ignore_id:
@@ -1139,14 +1034,16 @@ class DddDataset(data.Dataset):
                 draw_gaussian(hm[cls_id], ct, radius)
 
                 wh[k] = 1. * w, 1. * h
-                gt_det.append([ct[0], ct[1], 1] + self._alpha_to_8(self._convert_alpha(ann['alpha'])) +                               [ann['depth']] + (np.array(ann['dim']) / 1).tolist() + [cls_id])
+                gt_det.append(
+                    [ct[0], ct[1], 1] + self._alpha_to_8(self._convert_alpha(ann['alpha'])) + [ann['depth']] + (
+                                np.array(ann['dim']) / 1).tolist() + [cls_id])
                 if self.opt["reg_bbox"]:
                     gt_det[-1] = gt_det[-1][:-1] + [w, h] + [gt_det[-1][-1]]
                 if 1:
                     alpha = self._convert_alpha(ann['alpha'])
                     if alpha < np.pi / 6. or alpha > 5 * np.pi / 6.:
                         rotbin[k, 0] = 1
-                        rotres[k, 0] = alpha - (-0.5 * np.pi)    
+                        rotres[k, 0] = alpha - (-0.5 * np.pi)
                     if alpha > -np.pi / 6. or alpha < -5 * np.pi / 6.:
                         rotbin[k, 1] = 1
                         rotres[k, 1] = alpha - (0.5 * np.pi)
@@ -1156,17 +1053,17 @@ class DddDataset(data.Dataset):
                     reg[k] = ct - ct_int
                     reg_mask[k] = 1 if not aug else 0
                     rot_mask[k] = 1
-        ret = {'input': inp, 'hm': hm, 'dep': dep, 'dim': dim, 'ind': ind, 
+        ret = {'input': inp, 'hm': hm, 'dep': dep, 'dim': dim, 'ind': ind,
                'rotbin': rotbin, 'rotres': rotres, 'reg_mask': reg_mask,
                'rot_mask': rot_mask}
         if self.opt["reg_bbox"]:
             ret.update({'wh': wh})
         if self.opt["reg_offset"]:
             ret.update({'reg': reg})
-#         if self.opt["debug"] > 0 or not ('train' in self.split):
-#             gt_det = np.array(gt_det, dtype=np.float32) if len(gt_det) > 0 else np.zeros((1, 18), dtype=np.float32)
-#             meta = {'c': c, 's': s, 'gt_det': gt_det, 'calib': calib, 'image_path': img_path, 'img_id': img_id}
-#             ret['meta'] = meta
+        #         if self.opt["debug"] > 0 or not ('train' in self.split):
+        #             gt_det = np.array(gt_det, dtype=np.float32) if len(gt_det) > 0 else np.zeros((1, 18), dtype=np.float32)
+        #             meta = {'c': c, 's': s, 'gt_det': gt_det, 'calib': calib, 'image_path': img_path, 'img_id': img_id}
+        #             ret['meta'] = meta
 
         return ret
 
@@ -1181,9 +1078,6 @@ class DddDataset(data.Dataset):
             ret[5] = 1
             ret[6], ret[7] = np.sin(r), np.cos(r)
         return ret
-
-
-# In[37]:
 
 
 def update_dataset_info_and_set_heads(opt, dataset):
@@ -1208,16 +1102,11 @@ def update_dataset_info_and_set_heads(opt, dataset):
     return opt
 
 
-# In[38]:
-
-
 def get_dataset():
     class Dataset(KITTI, DddDataset):
         pass
+
     return Dataset
-
-
-# In[39]:
 
 
 opt = {}
@@ -1274,17 +1163,9 @@ opt["vis_thresh"] = 0.3
 opt["debug"] = 0
 opt["save_dir"] = "results/"
 
-
-# In[40]:
-
-
 Dataset = get_dataset()
 opt = update_dataset_info_and_set_heads(opt, Dataset)
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
-
-
-# In[41]:
-
 
 model = DLASeg(opt["heads"],
                final_kernel=1,
@@ -1297,29 +1178,21 @@ optimizer = torch.optim.Adam(model.parameters(), opt["lr"])
 trainer = DddTrainer(opt, model, optimizer)
 trainer.set_device(opt["device"])
 
-
-# In[42]:
-
-
 train_loader = torch.utils.data.DataLoader(
-      Dataset(opt, "train"),
-      batch_size=opt["batch_size"],
-      shuffle=True,
-      num_workers=4,
-      pin_memory=True,
-      drop_last=True)
+    Dataset(opt, "train"),
+    batch_size=opt["batch_size"],
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True,
+    drop_last=True)
 
 val_loader = torch.utils.data.DataLoader(
-      Dataset(opt, 'val'), 
-      batch_size=1, 
-      shuffle=False,
-      num_workers=1,
-      pin_memory=True
+    Dataset(opt, 'val'),
+    batch_size=1,
+    shuffle=False,
+    num_workers=1,
+    pin_memory=True
 )
-
-
-# In[ ]:
-
 
 best = 1e10
 losses, hm_losses, dep_losses, dim_losses, rot_losses, wh_losses, off_losses = [], [], [], [], [], [], []
@@ -1338,7 +1211,7 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
         epoch, log_dict_train["loss"], log_dict_train["hm_loss"], log_dict_train["dep_loss"],
         log_dict_train["dim_loss"], log_dict_train["rot_loss"], log_dict_train["wh_loss"],
         log_dict_train["off_loss"]))
-    #torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
+    # torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
 
     if opt["val_intervals"] > 0 and epoch % opt["val_intervals"] == 0:
         torch.save(model.state_dict(), "centernet_val_{}.pth".format(epoch))
@@ -1352,10 +1225,11 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
             wh_losses_val.append(log_dict_val["wh_loss"])
             off_losses_val.append(log_dict_val["off_loss"])
 
-            print("VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
-                epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
-                log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
-                log_dict_val["off_loss"]))
+            print(
+                "VALIDATION EPOCH: {}, LOSS: {}, HM_LOSS: {}, DEP_LOSS:{}, DIM_LOSS: {}, ROT_LOSS: {}, WH_LOSS: {}, OFF_LOSS: {}".format(
+                    epoch, log_dict_val["loss"], log_dict_val["hm_loss"], log_dict_val["dep_loss"],
+                    log_dict_val["dim_loss"], log_dict_val["rot_loss"], log_dict_val["wh_loss"],
+                    log_dict_val["off_loss"]))
             if log_dict_val[opt["metric"]] < best:
                 best = log_dict_val[opt["metric"]]
                 torch.save(model.state_dict(), "centernet_best.pth")
@@ -1366,15 +1240,7 @@ for epoch in tqdm(range(1, opt["num_epochs"] + 1)):
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-
-# In[ ]:
-
-
 torch.save(model.state_dict(), "centernet_last.pth")
-
-
-# In[ ]:
-
 
 plt.plot(losses)
 plt.xlabel("Epochs")
@@ -1386,10 +1252,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(hm_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1399,10 +1261,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(dep_losses)
 plt.xlabel("Epochs")
@@ -1414,10 +1272,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(dim_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1427,10 +1281,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(rot_losses)
 plt.xlabel("Epochs")
@@ -1442,10 +1292,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(wh_losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1455,10 +1301,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(off_losses)
 plt.xlabel("Epochs")
@@ -1470,10 +1312,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(losses_val)
 plt.xlabel("Epochs (x5)")
 plt.ylabel("Loss")
@@ -1483,10 +1321,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(hm_losses_val)
 plt.xlabel("Epochs")
@@ -1498,10 +1332,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(dep_losses_val)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1511,10 +1341,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(dim_losses_val)
 plt.xlabel("Epochs")
@@ -1526,10 +1352,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(rot_losses_val)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1539,10 +1361,6 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
 
 plt.plot(wh_losses_val)
 plt.xlabel("Epochs")
@@ -1554,10 +1372,6 @@ plt.clf()
 plt.cla()
 plt.close()
 
-
-# In[ ]:
-
-
 plt.plot(off_losses_val)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
@@ -1567,10 +1381,3 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
-
-
-# In[ ]:
-
-
-
-
