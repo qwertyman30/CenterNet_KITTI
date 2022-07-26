@@ -114,7 +114,7 @@ for SPLIT in SPLITS:
                'dim': dim,
                'bbox': _bbox_to_coco_bbox(bbox),
                'depth': location[2],
-               'alpha': alpha,
+               'alpha': alpha,;
                'truncated': truncated,
                'occluded': occluded,
                'location': location,

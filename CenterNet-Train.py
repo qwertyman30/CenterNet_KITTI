@@ -1381,3 +1381,16 @@ plt.show()
 plt.clf()
 plt.cla()
 plt.close()
+
+// Plotting the heatmap of the predictions
+def plot_heatmap(pred, gt, name):
+    fig, ax = plt.subplots(1, 1)
+    ax.imshow(pred)
+    ax.imshow(gt, alpha=0.5)
+    ax.set_title(name)
+    ax.set_axis_off()
+    plt.savefig(name + ".png")
+    plt.show()
+    plt.clf()
+    plt.cla()
+    plt.close()
