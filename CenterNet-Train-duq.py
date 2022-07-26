@@ -1609,6 +1609,19 @@ torch.save(model_duq.state_dict(), "certainnet_final.pth")
 # In[ ]:
 
 
+plt.plot(losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.savefig("losses.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
 '''
 best = 1e10
 losses, hm_losses, dep_losses, dim_losses, rot_losses, wh_losses, off_losses = [], [], [], [], [], [], []
