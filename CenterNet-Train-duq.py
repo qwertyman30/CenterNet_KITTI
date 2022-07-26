@@ -561,7 +561,7 @@ class DUQ(nn.Module):
                  width=96,
                  height=320,
                  length_scale=0.25,
-                 gamma=0.9,
+                 gamma=0.99,
                  cuda=True):
         super().__init__()
         self.feature_extractor = feature_extractor
@@ -571,7 +571,7 @@ class DUQ(nn.Module):
         
         # CENTROID_SIZE x NUM_CLASSES x MODEL_OUTPUT
         # MODEL_OUTPUT (NUM_CLASSES x WIDTH x HEIGHT)
-        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, width, height))
+        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
         self.N = torch.zeros(num_classes, width, height) + 13
         # centroids
@@ -602,7 +602,7 @@ class DUQ(nn.Module):
 
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
         embedding_sum = torch.einsum("bcnwh,bnwh->cnwh", z, y)
 
@@ -611,7 +611,7 @@ class DUQ(nn.Module):
     def rbf(self, z):
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
 
         # centroids
@@ -1529,7 +1529,8 @@ model = DLASeg(opt["heads"],
                pretrained=True)
 model = model.cuda()
 model = load_model(model, "centernet_70.pth")
-model.requires_grad_ = False
+for param in model.parameters():
+    param.requires_grad = False
 # optimizer = torch.optim.Adam(model.parameters(), opt["lr"])
 
 # trainer = DddTrainer(opt, model, optimizer)
@@ -1594,10 +1595,10 @@ for epoch in progress:
         progress.set_description('epoch: %d, loss: %.4f' % (epoch, loss.item()))
 
     loss_mean = np.mean(loss_)
-    losses.append(loss_)
-    model_duq.update_gamma(epoch)
+    losses.append(loss_mean)
+#     model_duq.update_gamma(epoch)
     print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
-    torch.save(model.state_dict(), "centernet_{}.pth".format(epoch))
+    torch.save(model.state_dict(), "certainnet_{}.pth".format(epoch))
 
 
 # In[ ]:
