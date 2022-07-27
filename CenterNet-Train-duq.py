@@ -555,33 +555,44 @@ class DLASeg(nn.Module):
 
 class DUQ(nn.Module):
     def __init__(self,
-                 feature_extractor,
+                 opt,
                  centroid_size=512,
                  num_classes=3,
                  width=96,
                  height=320,
                  length_scale=0.25,
                  gamma=0.99,
+                 center_pixel_weighting=20,
                  cuda=True):
         super().__init__()
-        self.feature_extractor = feature_extractor
+        self.feature_extractor = DLASeg(opt["heads"],
+                                        final_kernel=1,
+                                        last_level=5,
+                                        head_conv=opt["head_conv"],
+                                        down_ratio=opt["down_ratio"],
+                                        pretrained=True)
         self.centroid_size = centroid_size
         self.num_classes = num_classes
         self.gamma = gamma
         
         # CENTROID_SIZE x NUM_CLASSES x MODEL_OUTPUT
         # MODEL_OUTPUT (NUM_CLASSES x WIDTH x HEIGHT)
-        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
+        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
         self.N = torch.zeros(num_classes, width, height) + 13
-        # centroids
         self.M = torch.normal(torch.zeros(centroid_size, num_classes, width, height), 0.05)
         if cuda:
+            self.feature_extractor = self.feature_extractor.cuda()
             self.N = self.N.cuda()
             self.M = self.M.cuda()
         
         self.M = self.N * self.M
         self.sigma = length_scale
+        self.center_pixel_weighting = center_pixel_weighting
+        
+    def freeze_feature_extractor(self):
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
 
     def update_sigma(self):
         self.sigma = max(0.05, 0.999*self.sigma)
@@ -595,23 +606,23 @@ class DUQ(nn.Module):
             self.gamma = 0.9999
 
     def update_embeddings(self, x, y):
-        self.N = self.gamma * self.N + (1 - self.gamma) * y.sum(0)
+        self.N = self.gamma * self.N + (1 - self.gamma) * (y ** self.center_pixel_weighting).sum(0)
 
         z = self.feature_extractor(x)
         z = z[0]['hm']
 
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
-        embedding_sum = torch.einsum("bcnwh,bnwh->cnwh", z, y)
+        embedding_sum = torch.einsum("bcnwh,bnwh->cnwh", z, y ** self.center_pixel_weighting)
 
-        self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum / torch.sum(y)
+        self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum / torch.sum(y ** self.center_pixel_weighting)
 
     def rbf(self, z):
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
 
         # centroids
@@ -619,96 +630,25 @@ class DUQ(nn.Module):
 
         # distance between predictions and centroids
         z_minus_ec = z - embeddings
+        #outlier protection
+        z_minus_ec = torch.clip(z_minus_ec, min=-3*self.sigma, max=3*self.sigma)
 
         # RBF function
-        rbf = (z_minus_ec ** 2).mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
+        rbf = (z_minus_ec.detach() ** 2).mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
 
         return z_minus_ec, rbf
 
     def forward(self, x):
-        z = self.feature_extractor(x)
-        z = z[0]['hm']
-        z_minus_ec, y_pred = self.rbf(z)
+        feat = self.feature_extractor(x)
+        hm = feat[0]['hm']
+        z_minus_ec, y_pred = self.rbf(hm)
+                
+        feat[0]['hm'] = y_pred
         # z_minus_ec is used for l2 regularization of hyperspace
-        return z_minus_ec, y_pred
+        return z_minus_ec, feat
 
 
 # In[21]:
-
-
-class DUQ_CONV(nn.Module):
-    def __init__(self,
-                 feature_extractor,
-                 centroid_size=512,
-                 num_classes=3,
-                 width=96,
-                 height=320,
-                 length_scale=0.25,
-                 gamma=0.9,
-                 cuda=True):
-        super().__init__()
-        self.feature_extractor = feature_extractor
-        self.centroid_size = centroid_size
-        self.num_classes = num_classes
-        self.gamma = gamma
-        
-        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, width, height))
-        nn.init.kaiming_normal_(self.W, nonlinearity="relu")
-        self.N = torch.zeros(num_classes) + 13
-        # centroids
-        self.M = torch.normal(torch.zeros(centroid_size, num_classes), 0.05)
-        if cuda:
-            self.N = self.N.cuda()
-            self.M = self.M.cuda()
-        
-        self.M = self.N * self.M
-        self.sigma = length_scale
-
-    def rbf(self, z):
-        # b->batch_size, w->width, h->height
-        # c->centroid_size, n->num_classes
-        z = torch.conv2d(z, self.W, padding='valid').squeeze(2)
-
-        embeddings = self.M / self.N.unsqueeze(0)
-
-        diff = z - embeddings.unsqueeze(0)
-        diff = (diff ** 2).mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
-
-        return diff
-    
-    def update_sigma(self):
-        self.sigma = max(0.05, 0.999*self.sigma)
-
-    def update_gamma(self, epoch):
-        if epoch == 5:
-            self.gamma = 0.99
-        elif epoch == 20:
-            self.gamma = 0.999
-        elif epoch == 60:
-            self.gamma = 0.9999
-        
-    def update_embeddings(self, x, y):
-        self.N = self.gamma * self.N + (1 - self.gamma) * y.sum([0, 2, 3])
-
-        z = self.feature_extractor(x)
-        z = z[0]['hm']
-
-        # b->batch_size, w->width, h->height
-        # c->centroid_size, n->num_classes
-        z = torch.conv2d(z, self.W, padding='valid').squeeze(2)
-        embedding_sum = torch.einsum("bcn,bnwh->cn", z, y) / torch.sum(y)
-
-        self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum
-
-    def forward(self, x):
-        z = self.feature_extractor(x)
-        z = z[0]['hm'] # same dims as gt heatmap
-        y_pred = self.rbf(z)
-
-        return z, y_pred
-
-
-# In[22]:
 
 
 def _neg_loss(pred, gt):
@@ -739,7 +679,7 @@ def _neg_loss(pred, gt):
     return loss
 
 
-# In[23]:
+# In[22]:
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -753,7 +693,7 @@ def _gather_feat(feat, ind, mask=None):
     return feat
 
 
-# In[24]:
+# In[23]:
 
 
 def _transpose_and_gather_feat(feat, ind):
@@ -763,7 +703,7 @@ def _transpose_and_gather_feat(feat, ind):
     return feat
 
 
-# In[25]:
+# In[24]:
 
 
 class L1Loss(nn.Module):
@@ -777,7 +717,7 @@ class L1Loss(nn.Module):
         return loss
 
 
-# In[26]:
+# In[25]:
 
 
 def compute_rot_loss(output, target_bin, target_res, mask):
@@ -809,14 +749,14 @@ def compute_rot_loss(output, target_bin, target_res, mask):
     return loss_bin1 + loss_bin2 + loss_res
 
 
-# In[27]:
+# In[26]:
 
 
 def compute_res_loss(output, target):
     return F.smooth_l1_loss(output, target, reduction='mean')
 
 
-# In[28]:
+# In[27]:
 
 
 # TODO: weight
@@ -826,7 +766,7 @@ def compute_bin_loss(output, target, mask):
     return F.cross_entropy(output, target, reduction='mean')
 
 
-# In[29]:
+# In[28]:
 
 
 class BinRotLoss(nn.Module):
@@ -839,7 +779,7 @@ class BinRotLoss(nn.Module):
         return loss
 
 
-# In[30]:
+# In[29]:
 
 
 class FocalLoss(nn.Module):
@@ -850,6 +790,18 @@ class FocalLoss(nn.Module):
 
     def forward(self, out, target):
         return self.neg_loss(out, target)
+
+
+# In[30]:
+
+
+def loss_hyperspace(y, z_minus_ec):
+    norm = torch.linalg.norm(z_minus_ec) ** 2
+    loss = torch.sum(norm * y)
+    weight = torch.sum(y)
+    
+    loss = torch.sum(loss) / weight
+    return loss
 
 
 # In[31]:
@@ -863,19 +815,22 @@ def _sigmoid(x):
 # In[32]:
 
 
-class DddLoss(torch.nn.Module):
+class Duq_with_centernet_loss(torch.nn.Module):
     def __init__(self, opt):
-        super(DddLoss, self).__init__()
+        super(Duq_with_centernet_loss, self).__init__()
         self.crit = FocalLoss()
         self.crit_reg = L1Loss()
         self.crit_rot = BinRotLoss()
+        self.hyperspace = loss_hyperspace
         self.opt = opt
 
-    def forward(self, outputs, batch):
+    def forward(self, duq_output, batch):
         opt = self.opt
         
         hm_loss, dep_loss, rot_loss, dim_loss = 0, 0, 0, 0
         wh_loss, off_loss = 0, 0
+        hyp_loss = 0
+        z_minus_ec, outputs = duq_output
         for s in range(opt["num_stacks"]):
             output = outputs[s]
             output['hm'] = _sigmoid(output['hm'])
@@ -888,6 +843,8 @@ class DddLoss(torch.nn.Module):
                     opt["output_w"], opt["output_h"])).to(opt["device"])
             
             hm_loss += self.crit(output['hm'], batch['hm']) / opt["num_stacks"]
+            hyp_loss += self.hyperspace(output['hm'], z_minus_ec)
+            
             if opt["dep_weight"] > 0:
                 dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
                                           batch['ind'], batch['dep']) / opt["num_stacks"]
@@ -908,12 +865,12 @@ class DddLoss(torch.nn.Module):
             if opt["reg_offset"] and opt["off_weight"] > 0:
                 off_loss += self.crit_reg(output['reg'], batch['rot_mask'],
                                           batch['ind'], batch['reg']) / opt["num_stacks"]
-
-        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss +                 opt["dim_weight"] * dim_loss + opt["rot_weight"] * rot_loss +                opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss
+                
+        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss +                 opt["dim_weight"] * dim_loss + opt["rot_weight"] * rot_loss +                opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss + hyp_loss
 
         loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss, 
-                      'dim_loss': dim_loss, 'rot_loss': rot_loss, 
-                      'wh_loss': wh_loss, 'off_loss': off_loss}
+                      'dim_loss': dim_loss, 'rot_loss': rot_loss, 'wh_loss': wh_loss,
+                      'off_loss': off_loss, 'hyp_loss': hyp_loss}
 
         return loss, loss_stats
 
@@ -1408,7 +1365,8 @@ opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
 opt["down_ratio"] = 4
 opt["batch_size"] = 2
-opt["num_epochs"] = 70
+opt["num_epochs"] = 80
+opt["freeze_epoch"] = 70
 opt["keep_res"] = False
 opt["nms"] = False
 opt["no_color_aug"] = False
@@ -1422,7 +1380,7 @@ opt["rect_mask"] = False
 opt["shift"] = 0.1
 opt["eval_oracle_dep"] = False
 opt["dep_weight"] = 1
-opt["dim_weight"] = 1
+opt["dim_weight"] = 1.2
 opt["rot_weight"] = 1
 opt["wh_weight"] = 0.1
 opt["off_weight"] = 1
@@ -1447,18 +1405,6 @@ os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 
 # In[43]:
-
-
-def loss_hyperspace(y, z_minus_ec):  
-    norm = torch.linalg.norm(z_minus_ec) ** 2
-    loss = torch.sum(norm * y)
-    weight = torch.sum(y)
-    
-    loss = torch.sum(loss) / weight
-    return loss
-
-
-# In[44]:
 
 
 def load_model(model, model_path, optimizer=None, resume=False, 
@@ -1518,26 +1464,24 @@ def load_model(model, model_path, optimizer=None, resume=False,
     return model
 
 
-# In[45]:
+# In[44]:
 
 
-model = DLASeg(opt["heads"],
-               final_kernel=1,
-               last_level=5,
-               head_conv=opt["head_conv"],
-               down_ratio=opt["down_ratio"],
-               pretrained=True)
-model = model.cuda()
-model = load_model(model, "centernet_70.pth")
-for param in model.parameters():
-    param.requires_grad = False
-# optimizer = torch.optim.Adam(model.parameters(), opt["lr"])
+# model = DLASeg(opt["heads"],
+#                final_kernel=1,
+#                last_level=5,
+#                head_conv=opt["head_conv"],
+#                down_ratio=opt["down_ratio"],
+#                pretrained=True)
+# model = model.cuda()
+# model = load_model(model, "centernet_70.pth")
+# optimizer_centernet = torch.optim.Adam(model.parameters(), opt["lr"])
 
 # trainer = DddTrainer(opt, model, optimizer)
 # trainer.set_device(opt["device"])
 
 
-# In[46]:
+# In[45]:
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -1557,19 +1501,25 @@ train_loader = torch.utils.data.DataLoader(
 # )
 
 
+# In[46]:
+
+
+model_duq = DUQ(opt).cuda()
+optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
+criterion = Duq_with_centernet_loss(opt).cuda()
+
+
 # In[47]:
 
 
-model_duq = DUQ(model).cuda()
-optimizer = torch.optim.Adam(model.parameters(), opt["lr"])
-criterion_duq = torch.nn.MSELoss().cuda()
+torch.autograd.set_detect_anomaly(True)
 
 
 # In[ ]:
 
 
 losses = []
-progress = tqdm(range(1, 11))
+progress = tqdm(range(1, opt['num_epochs']+1))
 for epoch in progress:
     loss_ = []
     for batch in train_loader:
@@ -1578,27 +1528,29 @@ for epoch in progress:
                 batch[k] = batch[k].to(device=opt['device'], non_blocking=True)
 
         x = batch['input']
-        y = batch['hm']
-        z_minus_ec, y_pred = model_duq(x)
-        loss = criterion_duq(y, y_pred) + loss_hyperspace(y, z_minus_ec)
+#         y = batch['hm']
+        z_minus_ec, feat = model_duq(x)
+        loss, loss_stats = criterion((z_minus_ec, feat), batch)
+        loss = loss.mean()
+        loss_.append(loss.item())
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        loss_.append(loss.item())
 
         with torch.no_grad():
             model_duq.eval()
-            model_duq.update_embeddings(x, y)
+            model_duq.update_embeddings(x, batch['hm'])
             model_duq.update_sigma()
 
         progress.set_description('epoch: %d, loss: %.4f' % (epoch, loss.item()))
 
     loss_mean = np.mean(loss_)
     losses.append(loss_mean)
-#     model_duq.update_gamma(epoch)
     print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
     torch.save(model.state_dict(), "certainnet_{}.pth".format(epoch))
+    if epoch == opt["freeze_epoch"]:
+        model_duq.freeze_feature_extractor()
 
 
 # In[ ]:
