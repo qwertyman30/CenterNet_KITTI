@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 import numpy as np
@@ -32,7 +32,7 @@ from image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from oracle_utils import gen_oracle_map
 
 
-# In[2]:
+# In[ ]:
 
 
 print(torch.cuda.is_available())
@@ -51,14 +51,14 @@ BatchNorm = nn.BatchNorm2d
 BN_MOMENTUM = 0.1
 
 
-# In[3]:
+# In[ ]:
 
 
 def get_model_url(data='imagenet', name='dla34', hash='ba72cf86'):
     return os.path.join('http://dl.yf.io/dla/models', data, '{}-{}.pth'.format(name, hash))
 
 
-# In[4]:
+# In[ ]:
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -67,7 +67,7 @@ def conv3x3(in_planes, out_planes, stride=1):
                      padding=1, bias=False)
 
 
-# In[5]:
+# In[ ]:
 
 
 class BasicBlock(nn.Module):
@@ -101,7 +101,7 @@ class BasicBlock(nn.Module):
         return out
 
 
-# In[6]:
+# In[ ]:
 
 
 class Bottleneck(nn.Module):
@@ -145,7 +145,7 @@ class Bottleneck(nn.Module):
         return out
 
 
-# In[7]:
+# In[ ]:
 
 
 class BottleneckX(nn.Module):
@@ -192,7 +192,7 @@ class BottleneckX(nn.Module):
         return out
 
 
-# In[8]:
+# In[ ]:
 
 
 class Root(nn.Module):
@@ -216,7 +216,7 @@ class Root(nn.Module):
         return x
 
 
-# In[9]:
+# In[ ]:
 
 
 class Tree(nn.Module):
@@ -275,7 +275,7 @@ class Tree(nn.Module):
         return x
 
 
-# In[10]:
+# In[ ]:
 
 
 class DLA(nn.Module):
@@ -353,7 +353,7 @@ class DLA(nn.Module):
         self.load_state_dict(model_weights)
 
 
-# In[11]:
+# In[ ]:
 
 
 def dla34(pretrained=True, **kwargs):  # DLA-34
@@ -365,7 +365,7 @@ def dla34(pretrained=True, **kwargs):  # DLA-34
     return model
 
 
-# In[12]:
+# In[ ]:
 
 
 def set_bn(bn):
@@ -374,7 +374,7 @@ def set_bn(bn):
     dla.BatchNorm = bn
 
 
-# In[13]:
+# In[ ]:
 
 
 class Identity(nn.Module):
@@ -385,7 +385,7 @@ class Identity(nn.Module):
         return x
 
 
-# In[14]:
+# In[ ]:
 
 
 def fill_fc_weights(layers):
@@ -395,7 +395,7 @@ def fill_fc_weights(layers):
                 nn.init.constant_(m.bias, 0)
 
 
-# In[15]:
+# In[ ]:
 
 
 def fill_up_weights(up):
@@ -409,7 +409,7 @@ def fill_up_weights(up):
         w[c, 0, :, :] = w[0, 0, :, :]
 
 
-# In[16]:
+# In[ ]:
 
 
 class DeformConv(nn.Module):
@@ -427,7 +427,7 @@ class DeformConv(nn.Module):
         return x
 
 
-# In[17]:
+# In[ ]:
 
 
 class IDAUp(nn.Module):
@@ -459,7 +459,7 @@ class IDAUp(nn.Module):
             layers[i] = node(layers[i] + layers[i - 1])
 
 
-# In[18]:
+# In[ ]:
 
 
 class DLAUp(nn.Module):
@@ -488,7 +488,7 @@ class DLAUp(nn.Module):
         return out
 
 
-# In[19]:
+# In[ ]:
 
 
 class DLASeg(nn.Module):
@@ -550,7 +550,7 @@ class DLASeg(nn.Module):
         return [z]
 
 
-# In[20]:
+# In[ ]:
 
 
 class DUQ(nn.Module):
@@ -577,7 +577,7 @@ class DUQ(nn.Module):
         
         # CENTROID_SIZE x NUM_CLASSES x MODEL_OUTPUT
         # MODEL_OUTPUT (NUM_CLASSES x WIDTH x HEIGHT)
-        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, width, height))
+        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
         self.N = torch.zeros(num_classes, width, height) + 13
         self.M = torch.normal(torch.zeros(centroid_size, num_classes, width, height), 0.05)
@@ -648,7 +648,7 @@ class DUQ(nn.Module):
         return z_minus_ec, feat
 
 
-# In[21]:
+# In[ ]:
 
 
 def _neg_loss(pred, gt):
@@ -679,7 +679,7 @@ def _neg_loss(pred, gt):
     return loss
 
 
-# In[22]:
+# In[ ]:
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -693,7 +693,7 @@ def _gather_feat(feat, ind, mask=None):
     return feat
 
 
-# In[23]:
+# In[ ]:
 
 
 def _transpose_and_gather_feat(feat, ind):
@@ -703,7 +703,7 @@ def _transpose_and_gather_feat(feat, ind):
     return feat
 
 
-# In[24]:
+# In[ ]:
 
 
 class L1Loss(nn.Module):
@@ -717,7 +717,7 @@ class L1Loss(nn.Module):
         return loss
 
 
-# In[25]:
+# In[ ]:
 
 
 def compute_rot_loss(output, target_bin, target_res, mask):
@@ -749,14 +749,14 @@ def compute_rot_loss(output, target_bin, target_res, mask):
     return loss_bin1 + loss_bin2 + loss_res
 
 
-# In[26]:
+# In[ ]:
 
 
 def compute_res_loss(output, target):
     return F.smooth_l1_loss(output, target, reduction='mean')
 
 
-# In[27]:
+# In[ ]:
 
 
 # TODO: weight
@@ -766,7 +766,7 @@ def compute_bin_loss(output, target, mask):
     return F.cross_entropy(output, target, reduction='mean')
 
 
-# In[28]:
+# In[ ]:
 
 
 class BinRotLoss(nn.Module):
@@ -779,7 +779,7 @@ class BinRotLoss(nn.Module):
         return loss
 
 
-# In[29]:
+# In[ ]:
 
 
 class FocalLoss(nn.Module):
@@ -792,7 +792,7 @@ class FocalLoss(nn.Module):
         return self.neg_loss(out, target)
 
 
-# In[30]:
+# In[ ]:
 
 
 def loss_hyperspace(y, z_minus_ec):
@@ -804,7 +804,7 @@ def loss_hyperspace(y, z_minus_ec):
     return loss
 
 
-# In[31]:
+# In[ ]:
 
 
 def _sigmoid(x):
@@ -812,7 +812,7 @@ def _sigmoid(x):
     return y
 
 
-# In[32]:
+# In[ ]:
 
 
 class Duq_with_centernet_loss(torch.nn.Module):
@@ -875,7 +875,7 @@ class Duq_with_centernet_loss(torch.nn.Module):
         return loss, loss_stats
 
 
-# In[33]:
+# In[ ]:
 
 
 class ModelWithLoss(torch.nn.Module):
@@ -890,7 +890,7 @@ class ModelWithLoss(torch.nn.Module):
         return outputs[-1], loss, loss_stats
 
 
-# In[34]:
+# In[ ]:
 
 
 class AverageMeter(object):
@@ -912,7 +912,7 @@ class AverageMeter(object):
             self.avg = self.sum / self.count
 
 
-# In[35]:
+# In[ ]:
 
 
 class BaseTrainer(object):
@@ -1008,7 +1008,7 @@ class BaseTrainer(object):
         return self.run_epoch('train', epoch, data_loader)
 
 
-# In[36]:
+# In[ ]:
 
 
 class DddTrainer(BaseTrainer):
@@ -1081,7 +1081,7 @@ class DddTrainer(BaseTrainer):
             results[img_id][j] = results[img_id][j][keep_inds]
 
 
-# In[37]:
+# In[ ]:
 
 
 class KITTI(data.Dataset):
@@ -1156,7 +1156,7 @@ class KITTI(data.Dataset):
                 save_dir))
 
 
-# In[38]:
+# In[ ]:
 
 
 class DddDataset(data.Dataset):
@@ -1302,7 +1302,7 @@ class DddDataset(data.Dataset):
         return ret
 
 
-# In[39]:
+# In[ ]:
 
 
 def update_dataset_info_and_set_heads(opt, dataset):
@@ -1327,7 +1327,7 @@ def update_dataset_info_and_set_heads(opt, dataset):
     return opt
 
 
-# In[40]:
+# In[ ]:
 
 
 def get_dataset():
@@ -1336,7 +1336,7 @@ def get_dataset():
     return Dataset
 
 
-# In[41]:
+# In[ ]:
 
 
 opt = {}
@@ -1395,7 +1395,7 @@ opt["debug"] = 0
 opt["save_dir"] = "results/"
 
 
-# In[42]:
+# In[ ]:
 
 
 Dataset = get_dataset()
@@ -1404,7 +1404,7 @@ opt = update_dataset_info_and_set_heads(opt, Dataset)
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 
 
-# In[43]:
+# In[ ]:
 
 
 def load_model(model, model_path, optimizer=None, resume=False, 
@@ -1464,7 +1464,7 @@ def load_model(model, model_path, optimizer=None, resume=False,
     return model
 
 
-# In[44]:
+# In[ ]:
 
 
 # model = DLASeg(opt["heads"],
@@ -1481,7 +1481,7 @@ def load_model(model, model_path, optimizer=None, resume=False,
 # trainer.set_device(opt["device"])
 
 
-# In[45]:
+# In[ ]:
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -1501,7 +1501,7 @@ train_loader = torch.utils.data.DataLoader(
 # )
 
 
-# In[46]:
+# In[ ]:
 
 
 model_duq = DUQ(opt).cuda()
@@ -1509,7 +1509,7 @@ optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
 
 
-# In[47]:
+# In[ ]:
 
 
 torch.autograd.set_detect_anomaly(True)
@@ -1519,9 +1519,12 @@ torch.autograd.set_detect_anomaly(True)
 
 
 losses = []
+hm_losses, dep_losses, dim_losses, rot_losses, wh_losses, off_losses = [], [], [], [], [] ,[]
 progress = tqdm(range(1, opt['num_epochs']+1))
+
 for epoch in progress:
     loss_ = []
+    hm_losses_, dep_losses_, dim_losses_, rot_losses_, wh_losses_, off_losses_ = [], [], [], [], [] ,[]
     for batch in train_loader:
         for k in batch:
             if k!= 'meta':
@@ -1532,7 +1535,22 @@ for epoch in progress:
         z_minus_ec, feat = model_duq(x)
         loss, loss_stats = criterion((z_minus_ec, feat), batch)
         loss = loss.mean()
+        
+        hm_l = loss_stats["hm_loss"].item()
+        dep_l = loss_stats["dep_loss"].item()
+        dim_l = loss_stats["dim_loss"].item()
+        rot_l = loss_stats["rot_loss"].item()
+        wh_l = loss_stats["wh_loss"].item()
+        off_l = loss_stats["off_loss"].item()
+        
+        # for visualization
         loss_.append(loss.item())
+        hm_losses_.append(hm_l)
+        dep_losses_.append(dep_l)
+        dim_losses_.append(dim_l)
+        rot_losses_.append(rot_l)
+        wh_losses_.append(wh_l)
+        off_losses_.append(off_l)
 
         optimizer.zero_grad()
         loss.backward()
@@ -1543,10 +1561,24 @@ for epoch in progress:
             model_duq.update_embeddings(x, batch['hm'])
             model_duq.update_sigma()
 
-        progress.set_description('epoch: %d, loss: %.4f' % (epoch, loss.item()))
+        progress.set_description('epoch: %d, loss: %.4f, hm: %.4f, dep: %.4f, dim: %.4f, rot: %.4f, wh: %.4f, off: %.4f' %                                 (epoch, loss.item(), hm_l, dep_l, dim_l, rot_l, wh_l, off_l))
 
     loss_mean = np.mean(loss_)
+    hm_losses_mean = np.mean(hm_losses_)
+    dep_losses_mean = np.mean(dep_losses_)
+    dim_losses_mean = np.mean(dim_losses_)
+    rot_losses_mean = np.mean(rot_losses_)
+    wh_losses_mean = np.mean(wh_losses_)
+    off_losses_mean = np.mean(off_losses_)
+    
     losses.append(loss_mean)
+    hm_losses.append(hm_losses_mean)
+    dep_losses.append(dep_losses_mean)
+    dim_losses.append(dim_losses_mean)
+    rot_losses.append(rot_losses_mean)
+    wh_losses.append(wh_losses_mean)
+    off_losses.append(off_losses_mean)
+    
     print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
     torch.save(model.state_dict(), "certainnet_{}.pth".format(epoch))
     if epoch == opt["freeze_epoch"]:
@@ -1565,7 +1597,92 @@ torch.save(model_duq.state_dict(), "certainnet_final.pth")
 plt.plot(losses)
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
-plt.savefig("losses.png")
+plt.title("Losses")
+plt.savefig("losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(hm_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("hm_losses")
+plt.savefig("hm_losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(dep_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("dep_losses")
+plt.savefig("dep_losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(dim_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("dim_losses")
+plt.savefig("dim_losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(rot_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("rot_losses")
+plt.savefig("rot_losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(wh_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("wh_losses")
+plt.savefig("wh_losses_duq.png")
+plt.show()
+plt.clf()
+plt.cla()
+plt.close()
+
+
+# In[ ]:
+
+
+plt.plot(off_losses)
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("off_losses")
+plt.savefig("off_losses_duq.png")
 plt.show()
 plt.clf()
 plt.cla()
