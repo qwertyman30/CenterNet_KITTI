@@ -842,7 +842,7 @@ class Duq_with_centernet_loss(torch.nn.Module):
                     opt["output_w"], opt["output_h"])).to(opt["device"])
             
             hm_loss += self.crit(output['hm'], batch['hm']) / opt["num_stacks"]
-            hyp_loss += self.hyperspace(output['hm'], z_minus_ec)
+            hyp_loss += self.hyperspace(output['hm'], z_minus_ec) * opt["hyp_weight"]  / opt["num_stacks"]
             
             if opt["dep_weight"] > 0:
                 dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
@@ -1363,7 +1363,7 @@ opt["trainval"] = False
 opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
 opt["down_ratio"] = 4
-opt["batch_size"] = 2
+opt["batch_size"] = 1
 opt["num_epochs"] = 80
 opt["freeze_epoch"] = 70
 opt["keep_res"] = False
@@ -1378,12 +1378,13 @@ opt["scale"] = 0.4
 opt["rect_mask"] = False
 opt["shift"] = 0.1
 opt["eval_oracle_dep"] = False
-opt["dep_weight"] = 1
-opt["dim_weight"] = 1.2
-opt["rot_weight"] = 1
+opt["dep_weight"] = 0.1
+opt["dim_weight"] = 0.2
+opt["rot_weight"] = 0.1
 opt["wh_weight"] = 0.1
-opt["off_weight"] = 1
-opt["hm_weight"] = 1
+opt["off_weight"] = 0.1
+opt["hm_weight"] = 0.1
+opt["hyp_weight"] = 0.01
 opt["test"] = False
 opt["val_intervals"] = 5
 opt["metric"] = "loss"
