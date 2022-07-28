@@ -579,6 +579,7 @@ class DUQ(nn.Module):
         # MODEL_OUTPUT (NUM_CLASSES x WIDTH x HEIGHT)
         self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
+        
         self.N = torch.zeros(num_classes, width, height) + 13
         self.M = torch.normal(torch.zeros(centroid_size, num_classes, width, height), 0.05)
         if cuda:
@@ -587,6 +588,7 @@ class DUQ(nn.Module):
             self.M = self.M.cuda()
         
         self.M = self.N * self.M
+
         self.sigma = length_scale
         self.center_pixel_weighting = center_pixel_weighting
         
@@ -594,9 +596,11 @@ class DUQ(nn.Module):
         for param in self.feature_extractor.parameters():
             param.requires_grad = False
 
+    # Length scale annealing
     def update_sigma(self):
         self.sigma = max(0.05, 0.999*self.sigma)
 
+    # Centroid momentum scheduling
     def update_gamma(self, epoch):
         if epoch == 5:
             self.gamma = 0.99
@@ -616,8 +620,10 @@ class DUQ(nn.Module):
         z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
         embedding_sum = torch.einsum("bcnwh,bnwh->cnwh", z, y ** self.center_pixel_weighting)
+        embedding_sum = embedding_sum / torch.sum(y ** self.center_pixel_weighting)
 
-        self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum / torch.sum(y ** self.center_pixel_weighting)
+        # Balanced centroid update
+        self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum
 
     def rbf(self, z):
         # b->batch_size, w->width, h->height
@@ -626,25 +632,31 @@ class DUQ(nn.Module):
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
 
         # centroids
-        embeddings = self.M / self.N
+        self.embeddings = self.M / self.N
 
-        # distance between predictions and centroids
-        z_minus_ec = z - embeddings
-        #outlier protection
-        z_minus_ec = torch.clip(z_minus_ec, min=-3*self.sigma, max=3*self.sigma)
+        # square of l2 distance between predictions and centroids
+        diff = ((z - self.embeddings)**2)
 
+        # outlier protection
+        diff = torch.clip(diff, min=-3*self.sigma, max=3*self.sigma)
+
+#         rbf = torch.mean(diff ** 2, 1)
+#         rbf = -torch.div(rbf, 2 * self.sigma ** 2)
+#         rbf = torch.exp(rbf.clone())
+        
         # RBF function
-        rbf = (z_minus_ec.detach() ** 2).mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
-        return z_minus_ec, rbf
+        rbf = diff.mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
+
+        return z, rbf
 
     def forward(self, x):
         feat = self.feature_extractor(x)
         hm = feat[0]['hm']
-        z_minus_ec, y_pred = self.rbf(hm)
-                
-        feat[0]['hm'] = y_pred
-        # z_minus_ec is used for l2 regularization of hyperspace
-        return z_minus_ec, feat
+        z, y_pred = self.rbf(hm)
+
+        feat[0]['hm'] = y_pred.clone()
+        # z is used for l2 regularization of hyperspace
+        return z, feat
 
 
 # In[21]:
@@ -794,10 +806,11 @@ class FocalLoss(nn.Module):
 # In[30]:
 
 
-def loss_hyperspace(y, z_minus_ec):
-    norm = torch.linalg.norm(z_minus_ec) ** 2
-    loss = torch.sum(norm * y)
-    weight = torch.sum(y)
+# Hyperspace regularization
+def loss_hyperspace(y, z, embeddings, center_pixel_weighting=20):
+    norm = torch.dist(z, embeddings, p=2) ** 2
+    loss = torch.sum(norm * (y ** center_pixel_weighting))
+    weight = torch.sum(y ** center_pixel_weighting)
     
     loss = torch.sum(loss) / weight
     return loss
@@ -823,13 +836,13 @@ class Duq_with_centernet_loss(torch.nn.Module):
         self.hyperspace = loss_hyperspace
         self.opt = opt
 
-    def forward(self, duq_output, batch):
+    def forward(self, duq, batch, embeddings):
         opt = self.opt
         
         hm_loss, dep_loss, rot_loss, dim_loss = 0, 0, 0, 0
         wh_loss, off_loss = 0, 0
         hyp_loss = 0
-        z_minus_ec, outputs = duq_output
+        z, outputs = duq
         for s in range(opt["num_stacks"]):
             output = outputs[s]
             output['hm'] = _sigmoid(output['hm'])
@@ -842,7 +855,10 @@ class Duq_with_centernet_loss(torch.nn.Module):
                     opt["output_w"], opt["output_h"])).to(opt["device"])
             
             hm_loss += self.crit(output['hm'], batch['hm']) / opt["num_stacks"]
-            hyp_loss += self.hyperspace(output['hm'], z_minus_ec) * opt["hyp_weight"]  / opt["num_stacks"]
+            hyp_loss += self.hyperspace(output['hm'],
+                                        z,
+                                        embeddings,
+                                        opt["center_pixel_weighting"])  / opt["num_stacks"]
             
             if opt["dep_weight"] > 0:
                 dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
@@ -865,7 +881,7 @@ class Duq_with_centernet_loss(torch.nn.Module):
                 off_loss += self.crit_reg(output['reg'], batch['rot_mask'],
                                           batch['ind'], batch['reg']) / opt["num_stacks"]
                 
-        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss +                 opt["dim_weight"] * dim_loss + opt["rot_weight"] * rot_loss +                opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss + hyp_loss
+        loss = opt["hm_weight"] * hm_loss + opt["dep_weight"] * dep_loss +                 opt["dim_weight"] * dim_loss + opt["rot_weight"] * rot_loss +                opt["wh_weight"] * wh_loss + opt["off_weight"] * off_loss +                opt["hyp_weight"] * hyp_loss
 
         loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss, 
                       'dim_loss': dim_loss, 'rot_loss': rot_loss, 'wh_loss': wh_loss,
@@ -1385,6 +1401,7 @@ opt["wh_weight"] = 0.1
 opt["off_weight"] = 0.1
 opt["hm_weight"] = 0.1
 opt["hyp_weight"] = 0.01
+opt["center_pixel_weighting"] = 20
 opt["test"] = False
 opt["val_intervals"] = 5
 opt["metric"] = "loss"
@@ -1505,8 +1522,10 @@ train_loader = torch.utils.data.DataLoader(
 
 
 model_duq = DUQ(opt).cuda()
+# model_duq.freeze_feature_extractor()
 optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
+torch.autograd.set_detect_anomaly(True)
 
 
 # In[47]:
@@ -1526,8 +1545,8 @@ for epoch in progress:
 
         x = batch['input']
 #         y = batch['hm']
-        z_minus_ec, feat = model_duq(x)
-        loss, loss_stats = criterion((z_minus_ec, feat), batch)
+        z, feat = model_duq(x)
+        loss, loss_stats = criterion((z, feat), batch, model_duq.embeddings)
         loss = loss.mean()
 
         hm_l = loss_stats["hm_loss"].cpu().item()
@@ -1574,10 +1593,19 @@ for epoch in progress:
     off_losses.append(off_losses_mean)
 
     print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
-    torch.save(model.state_dict(), "certainnet_{}.pth".format(epoch))
-    model_duq.update_gamma()
+    torch.save(model_duq.state_dict(), "certainnet_{}.pth".format(epoch))
+    model_duq.update_gamma(epoch)
+
+    # freeze base object detector
     if epoch == opt["freeze_epoch"]:
         model_duq.freeze_feature_extractor()
+    
+    # drop lr
+    if epoch in opt["lr_step"]:
+        lr = opt["lr"] * (0.1 ** (opt["lr_step"].index(epoch) + 1))
+        print('Drop LR to', lr)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
 
 
 # In[ ]:
