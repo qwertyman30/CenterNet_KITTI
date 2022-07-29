@@ -1529,7 +1529,7 @@ train_loader = torch.utils.data.DataLoader(
 model_duq = DUQ(opt)
 model_duq = nn.DataParallel(model_duq, gpu_ids = [0,1])
 # model_duq.freeze_feature_extractor()
-DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
+optimizer = DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
 # optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
 # torch.autograd.set_detect_anomaly(True)
