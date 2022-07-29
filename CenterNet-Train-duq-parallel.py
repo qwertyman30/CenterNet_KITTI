@@ -31,6 +31,7 @@ from image import flip, color_aug
 from image import get_affine_transform, affine_transform
 from image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from oracle_utils import gen_oracle_map
+from data_parallel import DataParallel
 
 
 # In[ ]:
