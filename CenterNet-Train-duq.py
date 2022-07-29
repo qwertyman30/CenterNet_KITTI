@@ -1530,6 +1530,7 @@ torch.autograd.set_detect_anomaly(True)
 losses = []
 hm_losses, dep_losses, dim_losses, rot_losses, wh_losses, off_losses = [], [], [], [], [] ,[]
 progress = tqdm(range(1, opt['num_epochs']+1))
+sigma_update = 16 / opt["batch_size"]
 
 for epoch in progress:
     loss_ = []
@@ -1568,7 +1569,7 @@ for epoch in progress:
         with torch.no_grad():
             model_duq.eval()
             model_duq.update_embeddings(x, batch['hm'])
-            if (i+1)%8 == 0:
+            if (i+1)%sigma_update == 0:
                 model_duq.update_sigma()
 
         progress.set_description('epoch: %d, loss: %.4f, hm: %.4f, dep: %.4f, dim: %.4f, rot: %.4f, wh: %.4f, off: %.4f' %                                 (epoch, loss.item(), hm_l, dep_l, dim_l, rot_l, wh_l, off_l))
