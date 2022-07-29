@@ -1529,11 +1529,10 @@ gpus = opt["gpus"]
 if len(gpus) > 1:
     model_duq = DataParallel(model_duq, device_ids=gpus, 
                              chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
-    optimizer = DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
-
 else:
     model_duq = model_duq().cuda()
-    optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
+
+optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 
 # model_duq.freeze_feature_extractor()
 criterion = Duq_with_centernet_loss(opt).cuda()
