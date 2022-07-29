@@ -1375,6 +1375,8 @@ opt["lr_step"] = [45, 60]
 opt["trainval"] = False
 opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
+opt["gpus"] = [0,1]
+opt["chunk_sizes"] = [7]
 opt["down_ratio"] = 4
 opt["batch_size"] = 8
 opt["num_epochs"] = 80
@@ -1481,13 +1483,6 @@ def load_model(model, model_path, optimizer=None, resume=False,
 # In[ ]:
 
 
-model_duq = DUQ(opt)
-model_duq = torch.nn.parallel.DistributedDataParallel(model_duq, device_ids=[0, 1])
-
-
-# In[ ]:
-
-
 # model = DLASeg(opt["heads"],
 #                final_kernel=1,
 #                last_level=5,
@@ -1527,10 +1522,19 @@ train_loader = torch.utils.data.DataLoader(
 
 # model_duq = DUQ(opt).cuda()
 model_duq = DUQ(opt)
-model_duq = nn.DataParallel(model_duq, gpu_ids = [0,1])
+
+gpus = opt["gpus"]
+
+if len(gpus) > 1:
+    model_duq = DataParallel(model_duq, device_ids=gpus, 
+                             chunk_sizes=opt["chunk_sizes"]).to(device)
+    optimizer = DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
+
+else:
+    model_duq = model_duq().cuda()
+    optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
+
 # model_duq.freeze_feature_extractor()
-optimizer = DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
-# optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
 # torch.autograd.set_detect_anomaly(True)
 
