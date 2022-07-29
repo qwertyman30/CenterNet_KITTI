@@ -1534,7 +1534,7 @@ progress = tqdm(range(1, opt['num_epochs']+1))
 for epoch in progress:
     loss_ = []
     hm_losses_, dep_losses_, dim_losses_, rot_losses_, wh_losses_, off_losses_ = [], [], [], [], [] ,[]
-    for batch in train_loader:
+    for i, batch in enumerate(train_loader):
         for k in batch:
             if k!= 'meta':
                 batch[k] = batch[k].to(device=opt['device'], non_blocking=True)
@@ -1568,7 +1568,8 @@ for epoch in progress:
         with torch.no_grad():
             model_duq.eval()
             model_duq.update_embeddings(x, batch['hm'])
-            model_duq.update_sigma()
+            if (i+1)%8 == 0:
+                model_duq.update_sigma()
 
         progress.set_description('epoch: %d, loss: %.4f, hm: %.4f, dep: %.4f, dim: %.4f, rot: %.4f, wh: %.4f, off: %.4f' %                                 (epoch, loss.item(), hm_l, dep_l, dim_l, rot_l, wh_l, off_l))
 
