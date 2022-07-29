@@ -582,12 +582,10 @@ class DUQ(nn.Module):
         self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
         
-        self.N = torch.zeros(num_classes, width, height) + 13
-        self.M = torch.normal(torch.zeros(centroid_size, num_classes, width, height), 0.05)
-        if cuda:
-            self.feature_extractor = self.feature_extractor.cuda()
-            self.N = self.N.cuda()
-            self.M = self.M.cuda()
+        self.register_buffer("N", torch.zeros(num_classes, width, height) + 13)
+        self.register_buffer(
+            "M", torch.normal(torch.zeros(centroid_size, num_classes, width, height), 0.05)
+        )
         
         self.M = self.N * self.M
 
@@ -1418,7 +1416,7 @@ opt["save_dir"] = "results/"
 Dataset = get_dataset()
 opt = update_dataset_info_and_set_heads(opt, Dataset)
 # opt["heads"] = {'hm': 3}
-os.environ['CUDA_VISIBLE_DEVICES'] = "0, 1"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0,1"
 
 
 # In[ ]:
@@ -1525,12 +1523,11 @@ train_loader = torch.utils.data.DataLoader(
 model_duq = DUQ(opt)
 
 gpus = opt["gpus"]
-
 if len(gpus) > 1:
     model_duq = DataParallel(model_duq, device_ids=gpus, 
                              chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
 else:
-    model_duq = model_duq().cuda()
+    model_duq = model_duq.cuda()
 
 optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 
