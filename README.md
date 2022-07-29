@@ -22,7 +22,7 @@ conda create --name ENV_NAME python=3.8
 
 conda activate ENV_NAME
 
-<u><b>Install torch based on cuda RUNTIME version in the machine (use nvcc --version to check). Requires torch 10.2 or 11.x (x<=4)</b></u>
+<u><b>Install torch based on cuda RUNTIME version in the machine (use nvcc --version to check). Requires CUDA 10.2 or 11.x (x<=4) and torch 1.11</b></u>
 
 <u>CUDA 10.2</u>
 
