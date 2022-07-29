@@ -1526,11 +1526,8 @@ train_loader = torch.utils.data.DataLoader(
 model_duq = DUQ(opt)
 
 gpus = opt["gpus"]
-if len(gpus) > 1:
-    model_duq = DataParallel(model_duq, device_ids=gpus, 
-                             chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
-else:
-    model_duq = model_duq.cuda()
+model_duq = DataParallel(model_duq, device_ids=gpus, 
+                         chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
 
 optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 
@@ -1557,7 +1554,7 @@ for epoch in progress:
         x = batch['input']
 #         y = batch['hm']
         z, feat = model_duq(x)
-        loss, loss_stats = criterion((z, feat), batch, model_duq.get_embeddings())
+        loss, loss_stats = criterion((z, feat), batch, model_duq.module.get_embeddings())
         loss = loss.mean()
 
         hm_l = loss_stats["hm_loss"].cpu().item()
@@ -1581,10 +1578,10 @@ for epoch in progress:
         optimizer.step()
 
         with torch.no_grad():
-            model_duq.eval()
-            model_duq.update_embeddings(x, batch['hm'])
+            model_duq.module.eval()
+            model_duq.module.update_embeddings(x, batch['hm'])
             if (i+1)%8 == 0:
-                model_duq.update_sigma()
+                model_duq.module.update_sigma()
 
         progress.set_description('epoch: %d, loss: %.4f, hm: %.4f, dep: %.4f, dim: %.4f, rot: %.4f, wh: %.4f, off: %.4f' %                                 (epoch, loss.item(), hm_l, dep_l, dim_l, rot_l, wh_l, off_l))
 
@@ -1605,12 +1602,12 @@ for epoch in progress:
     off_losses.append(off_losses_mean)
 
     print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
-    torch.save(model_duq.state_dict(), "certainnet_{}.pth".format(epoch))
-    model_duq.update_gamma(epoch)
+    torch.save(model_duq.module.state_dict(), "certainnet_{}.pth".format(epoch))
+    model_duq.module.update_gamma(epoch)
 
     # freeze base object detector
     if epoch == opt["freeze_epoch"]:
-        model_duq.freeze_feature_extractor()
+        model_duq.module.freeze_feature_extractor()
     
     # drop lr
     if epoch in opt["lr_step"]:
@@ -1623,7 +1620,7 @@ for epoch in progress:
 # In[ ]:
 
 
-torch.save(model_duq.state_dict(), "certainnet_final.pth")
+torch.save(model_duq.module.state_dict(), "certainnet_final.pth")
 
 
 # In[ ]:
