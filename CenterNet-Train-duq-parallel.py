@@ -557,7 +557,7 @@ class DLASeg(nn.Module):
 
 class DUQ(nn.Module):
     def __init__(self,
-                 opt,
+                 feature_extractor,
                  centroid_size=512,
                  num_classes=3,
                  width=96,
@@ -567,12 +567,7 @@ class DUQ(nn.Module):
                  center_pixel_weighting=20,
                  cuda=True):
         super().__init__()
-        self.feature_extractor = DLASeg(opt["heads"],
-                                        final_kernel=1,
-                                        last_level=5,
-                                        head_conv=opt["head_conv"],
-                                        down_ratio=opt["down_ratio"],
-                                        pretrained=True)
+        self.feature_extractor = feature_extractor
         self.centroid_size = centroid_size
         self.num_classes = num_classes
         self.gamma = gamma
@@ -1526,7 +1521,16 @@ train_loader = torch.utils.data.DataLoader(
 
 
 # model_duq = DUQ(opt).cuda()
-model_duq = DUQ(opt)
+feature_extractor = DLASeg(opt["heads"],
+                           final_kernel=1,
+                           last_level=5,
+                           head_conv=opt["head_conv"],
+                           down_ratio=opt["down_ratio"],
+                           pretrained=True)
+feature_extractor = DataParallel(feature_extractor, device_ids=gpus, 
+                                 chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
+
+model_duq = DUQ(feature_extractor)
 
 gpus = opt["gpus"]
 model_duq = DataParallel(model_duq, device_ids=gpus, 
