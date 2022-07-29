@@ -1528,7 +1528,7 @@ gpus = opt["gpus"]
 
 if len(gpus) > 1:
     model_duq = DataParallel(model_duq, device_ids=gpus, 
-                             chunk_sizes=opt["chunk_sizes"]).to(device)
+                             chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
     optimizer = DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
 
 else:
