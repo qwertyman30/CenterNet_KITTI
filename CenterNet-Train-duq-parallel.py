@@ -1521,18 +1521,18 @@ train_loader = torch.utils.data.DataLoader(
 
 
 # model_duq = DUQ(opt).cuda()
+gpus = opt["gpus"]
+
 feature_extractor = DLASeg(opt["heads"],
                            final_kernel=1,
                            last_level=5,
                            head_conv=opt["head_conv"],
                            down_ratio=opt["down_ratio"],
                            pretrained=True)
-feature_extractor = DataParallel(feature_extractor, device_ids=gpus, 
-                                 chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
-
 model_duq = DUQ(feature_extractor)
 
-gpus = opt["gpus"]
+feature_extractor = DataParallel(feature_extractor, device_ids=gpus, 
+                                 chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
 model_duq = DataParallel(model_duq, device_ids=gpus, 
                          chunk_sizes=opt["chunk_sizes"]).to(torch.device('cuda'))
 
