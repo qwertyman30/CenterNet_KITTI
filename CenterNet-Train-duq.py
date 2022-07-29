@@ -639,10 +639,6 @@ class DUQ(nn.Module):
 
         # outlier protection
         diff = torch.clip(diff, min=-3*self.sigma, max=3*self.sigma)
-
-#         rbf = torch.mean(diff ** 2, 1)
-#         rbf = -torch.div(rbf, 2 * self.sigma ** 2)
-#         rbf = torch.exp(rbf.clone())
         
         # RBF function
         rbf = diff.mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
@@ -1379,7 +1375,7 @@ opt["trainval"] = False
 opt["data_dir"] = "data"
 opt["kitti_split"] = "3dop"
 opt["down_ratio"] = 4
-opt["batch_size"] = 1
+opt["batch_size"] = 2
 opt["num_epochs"] = 80
 opt["freeze_epoch"] = 70
 opt["keep_res"] = False
@@ -1528,7 +1524,7 @@ criterion = Duq_with_centernet_loss(opt).cuda()
 torch.autograd.set_detect_anomaly(True)
 
 
-# In[47]:
+# In[ ]:
 
 
 losses = []
