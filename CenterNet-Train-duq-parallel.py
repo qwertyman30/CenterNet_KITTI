@@ -15,10 +15,11 @@ import cv2
 from tqdm import tqdm
 
 import torch
-from torch import nn
+from torch import nn, optim
 import torch.nn.functional as F
 import torch.utils.data as data
 import torch.utils.model_zoo as model_zoo
+from torch.distributed.optim import DistributedOptimizer
 import torchvision
 import torchvision.ops
 
@@ -1414,7 +1415,7 @@ opt["save_dir"] = "results/"
 Dataset = get_dataset()
 opt = update_dataset_info_and_set_heads(opt, Dataset)
 # opt["heads"] = {'hm': 3}
-os.environ['CUDA_VISIBLE_DEVICES'] = "1"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0, 1"
 
 
 # In[ ]:
@@ -1480,6 +1481,13 @@ def load_model(model, model_path, optimizer=None, resume=False,
 # In[ ]:
 
 
+model_duq = DUQ(opt)
+model_duq = torch.nn.parallel.DistributedDataParallel(model_duq, device_ids=[0, 1])
+
+
+# In[ ]:
+
+
 # model = DLASeg(opt["heads"],
 #                final_kernel=1,
 #                last_level=5,
@@ -1521,7 +1529,8 @@ train_loader = torch.utils.data.DataLoader(
 model_duq = DUQ(opt)
 model_duq = nn.DataParallel(model_duq, gpu_ids = [0,1])
 # model_duq.freeze_feature_extractor()
-optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
+DistributedOptimizer(optim.Adam, model_duq.parameters(), opt["lr"])
+# optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
 # torch.autograd.set_detect_anomaly(True)
 
