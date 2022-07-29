@@ -624,6 +624,9 @@ class DUQ(nn.Module):
 
         # Balanced centroid update
         self.M = self.gamma * self.M + (1 - self.gamma) * embedding_sum
+        
+    def get_embeddings(self):
+        return self.embeddings
 
     def rbf(self, z):
         # b->batch_size, w->width, h->height
@@ -1554,7 +1557,7 @@ for epoch in progress:
         x = batch['input']
 #         y = batch['hm']
         z, feat = model_duq(x)
-        loss, loss_stats = criterion((z, feat), batch, model_duq.embeddings)
+        loss, loss_stats = criterion((z, feat), batch, model_duq.get_embeddings())
         loss = loss.mean()
 
         hm_l = loss_stats["hm_loss"].cpu().item()
