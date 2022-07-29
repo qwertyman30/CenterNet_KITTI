@@ -589,6 +589,9 @@ class DUQ(nn.Module):
         
         self.M = self.N * self.M
 
+        # centroids
+        self.embeddings = self.M / self.N
+
         self.sigma = length_scale
         self.center_pixel_weighting = center_pixel_weighting
         
