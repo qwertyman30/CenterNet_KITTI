@@ -555,29 +555,21 @@ class DLASeg(nn.Module):
 
 class DUQ(nn.Module):
     def __init__(self,
-                 opt,
+                 feature_extractor,
                  centroid_size=512,
                  num_classes=3,
                  width=96,
                  height=320,
                  length_scale=0.25,
-                 gamma=0.9,
+                 gamma=0.99,
                  center_pixel_weighting=20,
                  cuda=True):
+
         super().__init__()
-        self.feature_extractor = DLASeg(opt["heads"],
-                                        final_kernel=1,
-                                        last_level=5,
-                                        head_conv=opt["head_conv"],
-                                        down_ratio=opt["down_ratio"],
-                                        pretrained=True)
-        self.centroid_size = centroid_size
-        self.num_classes = num_classes
-        self.gamma = gamma
-        
+        self.feature_extractor = feature_extractor
         # CENTROID_SIZE x NUM_CLASSES x MODEL_OUTPUT
         # MODEL_OUTPUT (NUM_CLASSES x WIDTH x HEIGHT)
-        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, num_classes, width, height))
+        self.W = nn.Parameter(torch.zeros(centroid_size, num_classes, width, height))
         nn.init.kaiming_normal_(self.W, nonlinearity="relu")
         
         self.N = torch.zeros(num_classes, width, height) + 13
@@ -586,10 +578,11 @@ class DUQ(nn.Module):
             self.feature_extractor = self.feature_extractor.cuda()
             self.N = self.N.cuda()
             self.M = self.M.cuda()
-        
+
         self.M = self.N * self.M
 
         self.sigma = length_scale
+        self.gamma = gamma
         self.center_pixel_weighting = center_pixel_weighting
         
     def freeze_feature_extractor(self):
@@ -602,12 +595,14 @@ class DUQ(nn.Module):
 
     # Centroid momentum scheduling
     def update_gamma(self, epoch):
-        if epoch == 5:
-            self.gamma = 0.99
-        elif epoch == 20:
+        if epoch == 3:
             self.gamma = 0.999
-        elif epoch == 60:
-            self.gamma = 0.9999
+#         if epoch == 5:
+#             self.gamma = 0.99
+#         elif epoch == 20:
+#             self.gamma = 0.999
+#         elif epoch == 60:
+#             self.gamma = 0.9999
 
     def update_embeddings(self, x, y):
         self.N = self.gamma * self.N + (1 - self.gamma) * (y ** self.center_pixel_weighting).sum(0)
@@ -617,7 +612,7 @@ class DUQ(nn.Module):
 
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
         embedding_sum = torch.einsum("bcnwh,bnwh->cnwh", z, y ** self.center_pixel_weighting)
         embedding_sum = embedding_sum / torch.sum(y ** self.center_pixel_weighting)
@@ -628,7 +623,7 @@ class DUQ(nn.Module):
     def rbf(self, z):
         # b->batch_size, w->width, h->height
         # c->centroid_size, n->num_classes
-        z = torch.einsum("bnwh,cnnwh->bcnwh", z, self.W)
+        z = torch.einsum("bnwh,cnwh->bcnwh", z, self.W)
         # torch.conv2d(z, W, stride=[1, 1], padding='valid', dilation=[1, 1])
 
         # centroids
@@ -638,8 +633,8 @@ class DUQ(nn.Module):
         diff = ((z - self.embeddings)**2)
 
         # outlier protection
-        diff = torch.clip(diff, min=-3*self.sigma, max=3*self.sigma)
-        
+#         diff = torch.clip(diff, min=-3*self.sigma, max=3*self.sigma)
+
         # RBF function
         rbf = diff.mean(1).div(2 * self.sigma ** 2).mul(-1).exp()
 
@@ -1480,14 +1475,14 @@ def load_model(model, model_path, optimizer=None, resume=False,
 # In[44]:
 
 
-# model = DLASeg(opt["heads"],
-#                final_kernel=1,
-#                last_level=5,
-#                head_conv=opt["head_conv"],
-#                down_ratio=opt["down_ratio"],
-#                pretrained=True)
+model = DLASeg(opt["heads"],
+               final_kernel=1,
+               last_level=5,
+               head_conv=opt["head_conv"],
+               down_ratio=opt["down_ratio"],
+               pretrained=True)
 # model = model.cuda()
-# model = load_model(model, "centernet_70.pth")
+model = load_model(model, "centernet_70.pth")
 # optimizer_centernet = torch.optim.Adam(model.parameters(), opt["lr"])
 
 # trainer = DddTrainer(opt, model, optimizer)
@@ -1499,7 +1494,7 @@ def load_model(model, model_path, optimizer=None, resume=False,
 
 train_loader = torch.utils.data.DataLoader(
       Dataset(opt, "train"),
-      batch_size=opt["batch_size"],
+      batch_size=2,#opt["batch_size"],
       shuffle=True,
       num_workers=4,
       pin_memory=True,
@@ -1517,11 +1512,99 @@ train_loader = torch.utils.data.DataLoader(
 # In[46]:
 
 
-model_duq = DUQ(opt).cuda()
-# model_duq.freeze_feature_extractor()
+model_duq = DUQ(model).cuda()
+model_duq.freeze_feature_extractor()
 optimizer = torch.optim.Adam(model_duq.parameters(), opt["lr"])
 criterion = Duq_with_centernet_loss(opt).cuda()
 torch.autograd.set_detect_anomaly(True)
+
+
+# In[47]:
+
+
+losses = []
+hm_losses, dep_losses, dim_losses, rot_losses, wh_losses, off_losses = [], [], [], [], [] ,[]
+progress = tqdm(range(1, 11))
+sigma_update = 16 / opt["batch_size"]
+
+for epoch in progress:
+    loss_ = []
+    hm_losses_, dep_losses_, dim_losses_, rot_losses_, wh_losses_, off_losses_ = [], [], [], [], [] ,[]
+    for i, batch in enumerate(train_loader):
+        for k in batch:
+            if k!= 'meta':
+                batch[k] = batch[k].to(device=opt['device'], non_blocking=True)
+
+        x = batch['input']
+#         y = batch['hm']
+        z, feat = model_duq(x)
+        loss, loss_stats = criterion((z, feat), batch, model_duq.embeddings)
+        loss = loss.mean()
+
+        hm_l = loss_stats["hm_loss"].cpu().item()
+        dep_l = loss_stats["dep_loss"].cpu().item()
+        dim_l = loss_stats["dim_loss"].cpu().item()
+        rot_l = loss_stats["rot_loss"].cpu().item()
+        wh_l = loss_stats["wh_loss"].cpu().item()
+        off_l = loss_stats["off_loss"].cpu().item()
+
+        # for visualization
+        loss_.append(loss.cpu().item())
+        hm_losses_.append(hm_l)
+        dep_losses_.append(dep_l)
+        dim_losses_.append(dim_l)
+        rot_losses_.append(rot_l)
+        wh_losses_.append(wh_l)
+        off_losses_.append(off_l)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        with torch.no_grad():
+            model_duq.eval()
+            model_duq.update_embeddings(x, batch['hm'])
+            if (i+1)%sigma_update == 0:
+                model_duq.update_sigma()
+
+        progress.set_description('epoch: %d, loss: %.4f, hm: %.4f, dep: %.4f, dim: %.4f, rot: %.4f, wh: %.4f, off: %.4f' %                                 (epoch, loss.item(), hm_l, dep_l, dim_l, rot_l, wh_l, off_l))
+
+    loss_mean = np.mean(loss_)
+    hm_losses_mean = np.mean(hm_losses_)
+    dep_losses_mean = np.mean(dep_losses_)
+    dim_losses_mean = np.mean(dim_losses_)
+    rot_losses_mean = np.mean(rot_losses_)
+    wh_losses_mean = np.mean(wh_losses_)
+    off_losses_mean = np.mean(off_losses_)
+    
+    losses.append(loss_mean)
+    hm_losses.append(hm_losses_mean)
+    dep_losses.append(dep_losses_mean)
+    dim_losses.append(dim_losses_mean)
+    rot_losses.append(rot_losses_mean)
+    wh_losses.append(wh_losses_mean)
+    off_losses.append(off_losses_mean)
+
+    print(f"EPOCH: {epoch}, LOSS: {loss_mean}")
+    torch.save(model_duq.state_dict(), "certainnet_{}.pth".format(epoch))
+    model_duq.update_gamma(epoch)
+
+    # freeze base object detector
+    if epoch == opt["freeze_epoch"]:
+        model_duq.freeze_feature_extractor()
+    
+    # drop lr
+    if epoch in opt["lr_step"]:
+        lr = opt["lr"] * (0.1 ** (opt["lr_step"].index(epoch) + 1))
+        print('Drop LR to', lr)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+
+
+# In[49]:
+
+
+torch.normal(model_duq.embeddings, 0.25)
 
 
 # In[ ]:
